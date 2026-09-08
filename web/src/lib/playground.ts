@@ -77,7 +77,7 @@ export const NATIVE_TYPE_FOR_MODULE: Record<string, string[]> = {
 };
 
 const UN_MODULES = new Set([
-  "io", "fs", "math", "iter", "re", "random", "os", "time", "http", "ws", "inspect", "flow", "builtin",
+  "io", "fs", "math", "iter", "re", "random", "sys", "time", "http", "ws", "inspect", "flow", "builtin",
 ]);
 
 const BUILTIN_TYPE_INFO = new Map<string, { description: string; example: string }>();

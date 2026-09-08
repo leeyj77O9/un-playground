@@ -106,7 +106,7 @@ function SourceEditor({ source, onChange, onRun, disabled, syntaxDiagnostic, nat
     // use <module> 자동완성 — 빈 쿼리(use )와 부분 입력(use i) 모두 처리
     const beforeForUse = source.slice(0, completionRange.start)
     if (/\buse\s*$/.test(beforeForUse)) {
-      const mods = ["io","fs","math","iter","re","random","os","time","http","ws","inspect","flow","builtin"]
+      const mods = ["io","fs","math","iter","re","random","sys","time","http","ws","inspect","flow","builtin"]
       const q = completionRange.query.toLowerCase()
       const filtered = q ? mods.filter(m => m.toLowerCase().startsWith(q)) : mods
       if (filtered.length > 0) return filtered.map(m => ({ label: m, kind: "variable" as const, detail: "module" }))
