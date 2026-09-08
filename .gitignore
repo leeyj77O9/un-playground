@@ -1,15 +1,14 @@
 node_modules/
 dist/
-public/_framework/
 .vite/
 .opencode/
 .playwright-mcp/
 web/node_modules/
 web/dist/
-web/public/_framework/
 bin/
 obj/
 *.log
 dist/
 **/bin/
 **/obj/
+!web/public/_framework/
