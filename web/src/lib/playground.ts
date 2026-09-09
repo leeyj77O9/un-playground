@@ -242,13 +242,6 @@ export function extractUnSourceSymbols(source: string): UnAutocompleteCandidate[
         symbols.set(fnName, kind)
         detailMap.set(fnName, detail)
       }
-      const paramPart = line.slice(fnMatch[0].length - 1) // rough, get params from line
-      const parenMatch = line.match(/fn\s+[A-Za-z_][A-Za-z0-9_]*\s*\(([^)]*)\)/)
-      const paramsStr = parenMatch?.[1] ?? ""
-      for (const parameter of paramsStr.split(",")) {
-        const parameterName = parameter.trim().match(/^\*{0,2}([A-Za-z_][A-Za-z0-9_]*)/)?.[1];
-        if (parameterName) addUnSourceSymbol(symbols, parameterName, "variable");
-      }
       continue
     }
   }
@@ -258,8 +251,9 @@ export function extractUnSourceSymbols(source: string): UnAutocompleteCandidate[
   while ((match = functionPattern.exec(source)) !== null) {
     const fnName = match[1] ?? ""
     if (!fnName || symbols.has(fnName)) continue
+    const isFallbackMethod = methodNames.has(fnName)
     // if this fn was not classified via lines, treat as function unless it's known method
-    if (methodNames.has(fnName)) {
+    if (isFallbackMethod) {
       symbols.set(fnName, "method")
       // find owning class for detail
       const owner = Object.entries(classMethods).find(([, ms]) => ms.includes(fnName))?.[0]
@@ -268,26 +262,35 @@ export function extractUnSourceSymbols(source: string): UnAutocompleteCandidate[
       addUnSourceSymbol(symbols, fnName, "function")
       if (!detailMap.has(fnName)) detailMap.set(fnName, "defined function")
     }
-    for (const parameter of (match[2] ?? "").split(",")) {
-      const parameterName = parameter.trim().match(/^\*{0,2}([A-Za-z_][A-Za-z0-9_]*)/)?.[1];
-      if (parameterName) addUnSourceSymbol(symbols, parameterName, "variable");
+  }
+
+  // 클래스 멤버 변수는 자동완성에 포함하지 않음 — 클래스 내부 들여쓰기 블록에서는 변수/using/for 제외
+  {
+    const lines2 = source.split('\n')
+    let curClass: string | null = null
+    let curIndent = -1
+    for (const line of lines2) {
+      const trimmed = line.trim()
+      if (trimmed === '') continue
+      const indent = line.search(/\S|$/)
+      const cm = line.match(/^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)/)
+      if (cm) {
+        curClass = cm[1]
+        curIndent = indent
+        continue
+      }
+      if (curClass !== null && indent <= curIndent) {
+        curClass = null
+        curIndent = -1
+      }
+      if (curClass !== null) continue // 클래스 내부 → 변수 제안 제외
+      const am = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|\+=|-=|\*=|\/=|%=)/)
+      if (am) addUnSourceSymbol(symbols, am[1] ?? "", "variable")
+      const um = line.match(/^\s*using\s+([A-Za-z_][A-Za-z0-9_]*)/)
+      if (um) addUnSourceSymbol(symbols, um[1] ?? "", "variable")
+      const lm = line.match(/^\s*for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/)
+      if (lm) addUnSourceSymbol(symbols, lm[1] ?? "", "variable")
     }
-  }
-
-  const assignmentPattern = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|\+=|-=|\*=|\/=|%=)/gm;
-  const loopPattern = /^\s*for\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/gm;
-  const usingPattern = /^\s*using\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
-
-  while ((match = assignmentPattern.exec(source)) !== null) {
-    addUnSourceSymbol(symbols, match[1] ?? "", "variable");
-  }
-
-  while ((match = usingPattern.exec(source)) !== null) {
-    addUnSourceSymbol(symbols, match[1] ?? "", "variable");
-  }
-
-  while ((match = loopPattern.exec(source)) !== null) {
-    addUnSourceSymbol(symbols, match[1] ?? "", "variable");
   }
 
   return Array.from(symbols.entries())
@@ -737,9 +740,9 @@ export function getUnObjectMethodCandidates(source: string, cursor: number, nati
   // 붙여넣기 등으로 완성된 호출 뒤에 자동추천이 뜨는 것 방지
   // 예: a.add(1) 붙여넣기 후 커서가 ) 뒤에 있으면 dot은 a.의 것이지만 add(1)에 )가 포함되어 있으므로 dot 컨텍스트가 아님
   const afterDot = lineBeforeCompletion.slice(dot + 1)
-  if (afterDot.includes(')') || afterDot.includes(']') || afterDot.includes('}')) {
-    // afterDot에 닫는 괄호가 있고, 그 뒤에 새로운 .이 없으면 현재 dot은 이미 닫힌 호출에 속함
-    // a.add(1) -> afterDot="add(1)" => 차단, a.add(1). -> dot이 마지막이므로 afterDot="" => 허용
+  if (afterDot.includes(')') || afterDot.includes(']') || afterDot.includes('}') || afterDot.includes('(') || afterDot.includes('[') || afterDot.includes('{')) {
+    // afterDot에 괄호가 있으면 이미 닫혔거나 호출 인수 안에 있음 — 예: a.add(1) / io.write(value,  → 차단
+    // a.add(1). -> dot이 마지막이므로 afterDot="" => 허용
     return null
   }
 
@@ -793,6 +796,7 @@ export function getUnObjectMethodCandidates(source: string, cursor: number, nati
 }
 
 function getUnNativeCandidate(candidate: UnAutocompleteCandidate, nativeFunctions: readonly UnNativeFunctionMetadata[]) {
+  if (candidate.kind === "argument") return undefined;
   const memberModule = candidate.kind === "method" || candidate.kind === "property"
     ? candidate.detail.match(/^native\s+(.+)\s+(?:method|property)$/)?.[1]
     : null;
@@ -800,6 +804,11 @@ function getUnNativeCandidate(candidate: UnAutocompleteCandidate, nativeFunction
 }
 
 export function getUnAutocompletePreview(source: string, candidate: UnAutocompleteCandidate, nativeFunctions: readonly UnNativeFunctionMetadata[] = []): { description: string; example: string; returnType?: string } {
+  if (candidate.kind === "argument") {
+    const functionName = candidate.detail.replace(/^argument of\s+/, "");
+    const typeHint = getUnAutocompleteTypeHint(source, candidate, nativeFunctions) ?? "any";
+    return { description: `Parameter for ${functionName}. Expected type: ${typeHint}.`, example: `${functionName}(${candidate.label})` };
+  }
   if (candidate.detail === "builtin type") {
     const info = BUILTIN_TYPE_INFO.get(candidate.label);
     if (info?.description || info?.example) return { description: info.description || `Builtin type ${candidate.label}.`, example: info.example || `x: ${candidate.label}` };
@@ -816,12 +825,6 @@ export function getUnAutocompletePreview(source: string, candidate: UnAutocomple
 
   const keywordPreview = KEYWORD_PREVIEWS[candidate.label];
   if (keywordPreview) return keywordPreview;
-
-  if (candidate.kind === "argument") {
-    const functionName = candidate.detail.replace(/^argument of\s+/, "");
-    const typeHint = getUnAutocompleteTypeHint(source, candidate, nativeFunctions) ?? "any";
-    return { description: `Parameter for ${functionName}. Expected type: ${typeHint}.`, example: `${functionName}(${candidate.label})` };
-  }
 
   if (candidate.kind === "function") {
     const signature = extractUnFunctionSignatures(source)[candidate.label];
@@ -994,6 +997,10 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
   while ((classMatch = classDeclRe.exec(source)) !== null) {
     userClasses.add(classMatch[1])
   }
+  // 사용자 정의 함수/변수 — 하이라이팅에서 타입보다 우선 (같은 이름 섀도잉)
+  const userSymbols = extractUnSourceSymbols(source)
+  const userFunctions = new Set(userSymbols.filter(s => s.kind === "function" || s.kind === "method").map(s => s.label))
+  const userVariables = new Set(userSymbols.filter(s => s.kind === "variable").map(s => s.label))
   // use로 가져온 모듈(alias 포함) — io, mio 등
   const usedMap = getUsedNativeModuleMap(source)
   const aliasedBases = new Set<string>()
@@ -1107,10 +1114,12 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
         else type = "module"
         afterUseOrAs = false
       } else if (usedMap.has(value)) type = "module"
-      else if (UN_MODULES.has(value)) type = "variable"
-      else if (UN_BUILTIN_TYPES.has(value)) type = "type"
+      else if (userFunctions.has(value)) type = "function"
+      else if (userVariables.has(value)) type = "variable"
       else if (userClasses.has(value)) type = "type"
       else if (nextNonWhitespace === "(") type = "function"
+      else if (UN_MODULES.has(value)) type = "variable"
+      else if (UN_BUILTIN_TYPES.has(value)) type = "type"
       else type = "variable"
       push(type, value);
       index += value.length;

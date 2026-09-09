@@ -1,5 +1,5 @@
 import './index.css'
-import React, { type ChangeEvent, type KeyboardEvent, type UIEvent, useEffect, useMemo, useRef, useState } from 'react'
+import React, { type ChangeEvent, type KeyboardEvent, type UIEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { animate } from 'animejs'
 import {
@@ -73,6 +73,7 @@ function SourceEditor({ source, onChange, onRun, disabled, syntaxDiagnostic, nat
   source: string; onChange: (v: string) => void; onRun: () => void; disabled: boolean; syntaxDiagnostic: UnSyntaxDiagnostic | null; nativeFunctions: readonly UnNativeFunctionMetadata[]
 }) {
   const editorRef = useRef<HTMLTextAreaElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const lineGutterContentRef = useRef<HTMLPreElement>(null)
   const highlightContentRef = useRef<HTMLElement>(null)
   const [cursor, setCursor] = useState(0)
@@ -131,6 +132,10 @@ function SourceEditor({ source, onChange, onRun, disabled, syntaxDiagnostic, nat
     }
     const objectMethodCandidates = getUnObjectMethodCandidates(source, cursor, nativeFunctions, 50)
     if (objectMethodCandidates) return objectMethodCandidates.slice(0, 50)
+    // 콤마/괄호 직후 빈 쿼리에서는 텍스트 입력 전까지 추천 숨김: io.write(value,|) 등
+    if (!completionRange.query) {
+      return []
+    }
     const candidates = new Map<string, UnAutocompleteCandidate>()
     ;[...getUnFunctionArgumentCandidates(source, cursor, nativeFunctions), ...getUnAutocompleteCandidates(source, completionRange.query, nativeFunctions, 50)].forEach((candidate: any) => {
       if (!candidates.has(candidate.label)) candidates.set(candidate.label, candidate as UnAutocompleteCandidate)
@@ -141,16 +146,62 @@ function SourceEditor({ source, onChange, onRun, disabled, syntaxDiagnostic, nat
   const selectedSuggestion = suggestions[Math.min(selectedSuggestionIndex, Math.max(0, suggestions.length - 1))] as any
   const selectedSuggestionPreview = useMemo(() => selectedSuggestion ? getUnAutocompletePreview(source, selectedSuggestion, nativeFunctions) : null, [nativeFunctions, selectedSuggestion, source])
   const selectedSuggestionTypeHint = useMemo(() => selectedSuggestion ? getUnAutocompleteTypeHint(source, selectedSuggestion, nativeFunctions) : null, [nativeFunctions, selectedSuggestion, source])
+  const [measuredPos, setMeasuredPos] = useState<{ left: number; top: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!showCompletions) { setMeasuredPos(null); return }
+    const ta = editorRef.current
+    const container = containerRef.current
+    if (!ta || !container) return
+    const mirror = document.createElement('div')
+    const taStyle = window.getComputedStyle(ta)
+    mirror.style.position = 'absolute'
+    mirror.style.visibility = 'hidden'
+    mirror.style.pointerEvents = 'none'
+    mirror.style.top = '-9999px'
+    mirror.style.left = '-9999px'
+    mirror.style.whiteSpace = 'pre'
+    mirror.style.wordWrap = 'normal'
+    mirror.style.overflow = 'hidden'
+    mirror.style.fontFamily = taStyle.fontFamily
+    mirror.style.fontSize = taStyle.fontSize
+    mirror.style.lineHeight = taStyle.lineHeight
+    mirror.style.letterSpacing = taStyle.letterSpacing
+    mirror.style.fontWeight = taStyle.fontWeight
+    mirror.style.padding = taStyle.padding
+    mirror.style.border = taStyle.border
+    mirror.style.boxSizing = taStyle.boxSizing
+    mirror.style.width = `${ta.clientWidth}px`
+    const before = source.slice(0, completionRange.start)
+    mirror.textContent = before
+    const marker = document.createElement('span')
+    marker.textContent = '\u200b'
+    mirror.appendChild(marker)
+    document.body.appendChild(mirror)
+    const containerRect = container.getBoundingClientRect()
+    const markerRect = marker.getBoundingClientRect()
+    const mirrorRect = mirror.getBoundingClientRect()
+    const relativeLeft = markerRect.left - mirrorRect.left
+    const relativeTop = markerRect.top - mirrorRect.top
+    const left = relativeLeft - ta.scrollLeft
+    const top = relativeTop - ta.scrollTop
+    document.body.removeChild(mirror)
+    // clamp to container
+    if (Number.isFinite(left) && Number.isFinite(top)) setMeasuredPos({ left, top })
+  }, [source, cursor, completionRange.start, scrollPosition.left, scrollPosition.top, showCompletions])
   const textBeforeCursor = source.slice(0, completionRange.start)
   const cursorLine = textBeforeCursor.split('\n').length - 1
   const cursorColumn = completionRange.start - (textBeforeCursor.lastIndexOf('\n') + 1)
-  const rawCompletionTop = 24 + cursorLine * 24 - scrollPosition.top
+  const estimatedLeft = 20 + cursorColumn * 7.83 - scrollPosition.left
+  const estimatedTop = 20 + cursorLine * 24 - scrollPosition.top
+  const measuredLeft = measuredPos ? measuredPos.left : estimatedLeft
+  const measuredTop = measuredPos ? measuredPos.top : estimatedTop
   const completionHeight = selectedSuggestionPreview ? 272 : 128
   const completionGap = 10
-  const completionOpensUpward = rawCompletionTop + 24 + completionHeight > 612 && rawCompletionTop >= completionHeight + completionGap
+  const containerHeight = containerRef.current?.clientHeight ?? 628
+  const completionOpensUpward = measuredTop + 24 + completionHeight > containerHeight - 8 && measuredTop >= completionHeight + completionGap
   const completionPosition = {
-    left: Math.max(8, 20 + cursorColumn * 7.83 - scrollPosition.left),
-    top: Math.max(8, completionOpensUpward ? rawCompletionTop - completionHeight - completionGap : rawCompletionTop + 24 + completionGap),
+    left: Math.max(8, Math.min(measuredLeft, (containerRef.current?.clientWidth ?? 600) - 288 - 8)),
+    top: Math.max(8, completionOpensUpward ? measuredTop - completionHeight - completionGap : measuredTop + 24 + completionGap),
   }
   useEffect(() => {
     if (!showCompletions) return
@@ -232,7 +283,7 @@ function SourceEditor({ source, onChange, onRun, disabled, syntaxDiagnostic, nat
   return (
     <div className="flex h-[628px] w-full min-h-0 overflow-hidden bg-[#161616] font-mono text-[13px] leading-6 text-[#e8e8e8]" style={{ backgroundColor: '#161616', width: '100%' }}>
       <div aria-hidden="true" className="code-line-gutter w-14 shrink-0 overflow-hidden border-r border-white/7 bg-[#101010] text-right text-[#747474] select-none" style={{ backgroundColor: '#101010' }}><pre ref={lineGutterContentRef} className="m-0 min-w-full px-4 py-5 will-change-transform">{lineNumbers}</pre></div>
-      <div className="relative min-w-0 flex-1 overflow-hidden" style={{ backgroundColor: '#161616', width: '100%' }}>
+      <div ref={containerRef} className="relative min-w-0 flex-1 overflow-hidden" style={{ backgroundColor: '#161616', width: '100%' }}>
         <pre aria-hidden="true" className="code-editor-highlight pointer-events-none absolute inset-0 m-0 overflow-hidden px-5 py-5 whitespace-pre" style={{ backgroundColor: '#161616', width: '100%' }}><code ref={highlightContentRef} className="block min-w-max will-change-transform" dangerouslySetInnerHTML={{ __html: highlightedSource }} /></pre>
         <textarea
           ref={editorRef}
