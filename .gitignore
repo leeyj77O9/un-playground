@@ -12,3 +12,12 @@ dist/
 **/bin/
 **/obj/
 !web/public/_framework/
+
+# opencode / agent docs (로컬 전용, 깃 추적 제외)
+opencode.json
+opencode.jsonc
+AGENTS.md
+LOOP.md
+DESIGN.md
+STATE.md
+TODO.md
