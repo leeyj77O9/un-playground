@@ -51,7 +51,7 @@ export function getEditorLineNumbers(source: string): string {
   return Array.from({ length: lineCount }, (_, index) => index + 1).join("\n");
 }
 
-type HighlightTokenType = "plain" | "keyword" | "function" | "variable" | "string" | "number" | "comment" | "type" | "module" | "bracket";
+type HighlightTokenType = "plain" | "keyword" | "function" | "variable" | "string" | "number" | "comment" | "type" | "module" | "bracket" | "decorator";
 
 type HighlightToken = {
   type: HighlightTokenType;
@@ -1103,7 +1103,7 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
     }
 
     if (current === "@") {
-      push("keyword", "@");
+      push("decorator", "@");
       afterAt = true;
       index += 1;
       continue;
@@ -1118,7 +1118,7 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
         type = "keyword"
         afterUseOrAs = (value === "use" || value === "as")
       } else if (afterAt) {
-        type = "function"
+        type = "decorator"
         afterAt = false
       } else if (afterUseOrAs) {
         if (braceDepth > 0) type = "variable"

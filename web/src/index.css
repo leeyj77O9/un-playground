@@ -333,6 +333,11 @@
     color: #179fff;
   }
 
+  .un-syntax-decorator {
+    color: #ff7edb;
+    font-weight: 600;
+  }
+
   .un-syntax-error {
     background: rgba(224, 83, 83, 0.14);
     color: #ffc3c3;
