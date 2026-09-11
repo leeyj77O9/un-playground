@@ -1,7 +1,7 @@
 {
   "mainAssemblyName": "Un.Playground.Wasm",
   "resources": {
-    "hash": "sha256-cZi4mZdvH2NW6nMGMSkn0lAt+EQ2dRN4gs3uVajfTWc=",
+    "hash": "sha256-1X+R5R5yiT+a6nM26hvH7Zxux5cWfD4o8Ct7kfOKxTQ=",
     "jsModuleNative": {
       "dotnet.native.js": "sha256-dexsp+9ih2C28zVhNnPXUbkz2QCq7lHpkyDcmaLl7NQ="
     },
@@ -209,12 +209,12 @@
       "mscorlib.wasm": "sha256-pP80UGziulDYhvVdeUaGEq9FlrHQDQmnCqVvx1FJZis=",
       "netstandard.wasm": "sha256-ARMsMyhWuSDjvzisfZbnEptnxh8Vh7VpHPhuT6iazy0=",
       "System.Private.CoreLib.wasm": "sha256-+28m4yuZsdz9ij1sJHvNH896fSI8gXgrQ9bhGO76Qqo=",
-      "Un.wasm": "sha256-BOO5Qd2BrSYCzYXhZ0+EkblIPLKHBwKGEv0B9uh6fvA=",
-      "Un.Playground.Wasm.wasm": "sha256-T/2EMPdPUcpzx2eTnzCgJ9RAfK5ju9lpA23eurqD9/Q="
+      "Un.wasm": "sha256-n5CHPpkuakF38Ry0OWnivOcUAzgGNipUVOcu4HFBIN4=",
+      "Un.Playground.Wasm.wasm": "sha256-ST6fjIfiWCJXUN+8z5POtkMvMd+GEXyA6FNW7A8NkZY="
     },
     "pdb": {
-      "Un.pdb": "sha256-wsoaoaZuio/7WWEuEoAKvy14hhPjeeiOUhvdUgw8HoY=",
-      "Un.Playground.Wasm.pdb": "sha256-3hCbIEVTwUHlrrGQ9oGTq19pL3bwT+iqtI7jbEDC15k="
+      "Un.pdb": "sha256-ck9nXMnyCJjn0pi+5iLgHiPiM0mkDxAQPSV7fk6mdQU=",
+      "Un.Playground.Wasm.pdb": "sha256-I2+usYzQzzackymFfowJf+QOfDEoqsKR2oa6q/2Qo7k="
     }
   },
   "cacheBootResources": true,
