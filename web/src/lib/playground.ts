@@ -1006,6 +1006,7 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
   const aliasedBases = new Set<string>()
   for (const [k, v] of usedMap.entries()) if (k !== v) aliasedBases.add(v)
   let afterUseOrAs = false
+  let afterAt = false
   let braceDepth = 0
   const getCurrentLine = (pos: number) => {
     const lastNl = source.lastIndexOf("\n", pos - 1)
@@ -1101,6 +1102,13 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
       continue;
     }
 
+    if (current === "@") {
+      push("keyword", "@");
+      afterAt = true;
+      index += 1;
+      continue;
+    }
+
     if (/[A-Za-z_]/.test(current)) {
       const match = source.slice(index).match(/^[A-Za-z_][A-Za-z0-9_]*/);
       const value = match?.[0] ?? current;
@@ -1109,6 +1117,9 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
       if (UN_KEYWORDS.has(value)) {
         type = "keyword"
         afterUseOrAs = (value === "use" || value === "as")
+      } else if (afterAt) {
+        type = "function"
+        afterAt = false
       } else if (afterUseOrAs) {
         if (braceDepth > 0) type = "variable"
         else type = "module"
