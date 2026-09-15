@@ -797,9 +797,7 @@ export function getUnObjectMethodCandidates(source: string, cursor: number, nati
 
 function getUnNativeCandidate(candidate: UnAutocompleteCandidate, nativeFunctions: readonly UnNativeFunctionMetadata[]) {
   if (candidate.kind === "argument") return undefined;
-  const memberModule = candidate.kind === "method" || candidate.kind === "property"
-    ? candidate.detail.match(/^native\s+(.+)\s+(?:method|property)$/)?.[1]
-    : null;
+  const memberModule = candidate.detail.match(/^native\s+(.+)\s+(?:function|method|property)$/)?.[1] ?? null;
   return nativeFunctions.find((entry) => entry.name === candidate.label && (memberModule ? entry.module === memberModule : !entry.module.startsWith("type:")));
 }
 
@@ -1028,7 +1026,20 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
       continue;
     }
 
-    if (current === '"' || current === "'") {
+    if (current === '"' || current === "'" || current === "`") {
+      // triple-quoted string/f-string: """ """, ''' ''', ``` ```
+      if (source.slice(index, index + 3) === current.repeat(3)) {
+        const quote = current.repeat(3);
+        let end = index + 3;
+        while (end < source.length) {
+          if (source[end] === "\\") { end += 2; continue; }
+          if (source.slice(end, end + 3) === quote) { end += 3; break; }
+          end += 1;
+        }
+        push("string", source.slice(index, end));
+        index = end;
+        continue;
+      }
       const quote = current;
       let end = index + 1;
       while (end < source.length) {
