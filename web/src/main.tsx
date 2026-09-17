@@ -494,6 +494,15 @@ export default function Home() {
     animate('[data-import-error]', { opacity: [0, 1], translateY: [-6, 0], duration: 160, ease: 'outQuad' } as any)
   }, [importError])
 
+  // 파일 선택 오류 다이얼로그 자동 해제 (5초) 및 Esc로 닫기
+  useEffect(() => {
+    if (!importError) return
+    const t = window.setTimeout(() => setImportError(null), 6000)
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setImportError(null) }
+    window.addEventListener('keydown', onKey as any)
+    return () => { window.clearTimeout(t); window.removeEventListener('keydown', onKey as any) }
+  }, [importError])
+
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 's') return
@@ -644,7 +653,7 @@ export default function Home() {
             <div className="flex items-center gap-3 sm:gap-4">
               <input ref={importInputRef} type="file" accept=".un,text/plain" className="sr-only" onChange={importSource} style={{ display: 'none' }} />
               <div role="group" aria-label="Code file tools" className="flex items-center gap-0.5 rounded-xl bg-black/[0.055] p-1" style={{ display: 'flex', alignItems: 'center', gap: 2, borderRadius: 12, background: 'rgba(0,0,0,0.055)', padding: 4 }}>
-                <button onClick={() => importInputRef.current?.click()} onMouseEnter={(e) => { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; e.currentTarget.style.backgroundColor = '#ffffff'; e.currentTarget.style.transform = 'scale(1.03)' }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.transform = 'scale(1)' }} style={{ height: 32, display: 'flex', alignItems: 'center', gap: 6, borderRadius: 8, border: 0, background: 'transparent', padding: '0 10px', fontSize: 12, lineHeight: 1, color: '#414141', cursor: 'pointer', transition: 'background-color 0.14s ease, transform 0.14s ease' }} title="Import .un file"><FolderUp size={14} strokeWidth={2.4} /> <span className="hidden sm:inline">Import</span></button>
+                <button onClick={() => { setImportError(null); importInputRef.current?.click() }} onMouseEnter={(e) => { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; e.currentTarget.style.backgroundColor = '#ffffff'; e.currentTarget.style.transform = 'scale(1.03)' }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.transform = 'scale(1)' }} style={{ height: 32, display: 'flex', alignItems: 'center', gap: 6, borderRadius: 8, border: 0, background: 'transparent', padding: '0 10px', fontSize: 12, lineHeight: 1, color: '#414141', cursor: 'pointer', transition: 'background-color 0.14s ease, transform 0.14s ease' }} title="Import .un file"><FolderUp size={14} strokeWidth={2.4} /> <span className="hidden sm:inline">Import</span></button>
                 <button onClick={copySource} onMouseEnter={(e) => { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; e.currentTarget.style.backgroundColor = '#ffffff'; e.currentTarget.style.transform = 'scale(1.03)' }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.transform = 'scale(1)' }} style={{ height: 32, display: 'flex', alignItems: 'center', gap: 6, borderRadius: 8, border: 0, background: 'transparent', padding: '0 10px', fontSize: 12, lineHeight: 1, color: '#414141', cursor: 'pointer', transition: 'background-color 0.14s ease, transform 0.14s ease' }} title="Copy all code">{sourceCopied ? <Check size={14} strokeWidth={2.6} /> : <Copy size={14} strokeWidth={2.4} />} <span>{sourceCopied ? 'Copied' : 'Copy'}</span></button>
                 <button onClick={openExport} onMouseEnter={(e) => { if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return; e.currentTarget.style.backgroundColor = '#ffffff'; e.currentTarget.style.transform = 'scale(1.03)' }} onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.transform = 'scale(1)' }} style={{ height: 32, display: 'flex', alignItems: 'center', gap: 6, borderRadius: 8, border: 0, background: 'transparent', padding: '0 10px', fontSize: 12, lineHeight: 1, color: '#414141', cursor: 'pointer', transition: 'background-color 0.14s ease, transform 0.14s ease' }} title="Export current code (Ctrl/⌘+S)"><Download size={14} strokeWidth={2.4} /> <span>Export</span>{hasUnexportedChanges && <span style={{ width: 6, height: 6, borderRadius: 999, background: '#444', display: 'inline-block' }} />}</button>
               </div>
@@ -661,7 +670,7 @@ export default function Home() {
               </div>
             </div>
           </div>
-          {importError && <div data-import-error role="status" style={{ position: 'absolute', right: 16, top: 56, zIndex: 20, maxWidth: 'calc(100% - 2rem)', borderRadius: 6, border: '1px solid #8b3a3a', background: '#fff7f7', padding: '8px 12px', fontSize: 12, color: '#762d2d' }}>{importError}</div>}
+          {importError && <div data-import-error role="alert" onClick={() => setImportError(null)} title="클릭하여 닫기" style={{ position: 'absolute', right: 16, top: 56, zIndex: 20, maxWidth: 'calc(100% - 2rem)', borderRadius: 6, border: '1px solid #8b3a3a', background: '#fff7f7', padding: '8px 12px', fontSize: 12, color: '#762d2d', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}><span style={{ flex: 1 }}>{importError}</span><button onClick={(e) => { e.stopPropagation(); setImportError(null) }} aria-label="닫기" style={{ flexShrink: 0, width: 20, height: 20, borderRadius: 999, border: '1px solid #d9a0a0', background: '#fff', color: '#8b3a3a', fontSize: 12, lineHeight: 1, cursor: 'pointer' }}>×</button></div>}
           <div className="lg:hidden">
             <EditorPanel source={source} setSource={setSource} run={run} isRunning={isRunning} syntaxDiagnostic={syntaxDiagnostic} nativeFunctions={nativeFunctions as any} />
             <ResultPanel copied={copied} isRunning={isRunning} onCopy={copyOutput} presentation={presentation} result={resultWithDuration as any} stdin={stdin} setStdin={setStdin} />
