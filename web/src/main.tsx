@@ -15,6 +15,7 @@ import {
   Check,
   Square,
   FileText,
+  X,
 } from 'lucide-react'
 import { trackEvent } from './lib/analytics'
 import {
@@ -670,7 +671,7 @@ export default function Home() {
               </div>
             </div>
           </div>
-          {importError && <div data-import-error role="alert" onClick={() => setImportError(null)} title="클릭하여 닫기" style={{ position: 'absolute', right: 16, top: 56, zIndex: 20, maxWidth: 'calc(100% - 2rem)', borderRadius: 6, border: '1px solid #8b3a3a', background: '#fff7f7', padding: '8px 12px', fontSize: 12, color: '#762d2d', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}><span style={{ flex: 1 }}>{importError}</span><button onClick={(e) => { e.stopPropagation(); setImportError(null) }} aria-label="닫기" style={{ flexShrink: 0, width: 20, height: 20, borderRadius: 999, border: '1px solid #d9a0a0', background: '#fff', color: '#8b3a3a', fontSize: 12, lineHeight: 1, cursor: 'pointer' }}>×</button></div>}
+          {importError && <div data-import-error role="alert" style={{ position: 'absolute', right: 16, top: 56, zIndex: 20, maxWidth: 'calc(100% - 2rem)', borderRadius: 12, border: '1px solid rgba(0,0,0,0.08)', background: 'rgba(255,255,255,0.98)', padding: '10px 12px', fontSize: 12, fontWeight: 500, color: '#303030', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', backdropFilter: 'blur(6px)' }}><AlertTriangle size={14} strokeWidth={2.2} style={{ flexShrink: 0, color: '#c0504a' }} /><span style={{ flex: 1, lineHeight: 1.4 }}>{importError}</span><button onClick={() => setImportError(null)} aria-label="닫기" style={{ flexShrink: 0, display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: 999, border: 0, background: 'transparent', color: '#6b6b6b', cursor: 'pointer' }}><X size={12} strokeWidth={2.4} /></button></div>}
           <div className="lg:hidden">
             <EditorPanel source={source} setSource={setSource} run={run} isRunning={isRunning} syntaxDiagnostic={syntaxDiagnostic} nativeFunctions={nativeFunctions as any} />
             <ResultPanel copied={copied} isRunning={isRunning} onCopy={copyOutput} presentation={presentation} result={resultWithDuration as any} stdin={stdin} setStdin={setStdin} />
