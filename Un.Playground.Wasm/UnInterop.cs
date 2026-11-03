@@ -7,11 +7,24 @@ namespace Un.Playground.Wasm;
 
 public partial class UnInterop
 {
+    private static bool _allowEof;
+
     [JSExport]
     public static void InitPromptHandler()
     {
-        // No-op for now — read()는 SetStdin으로 미리 채워진 stdin을 사용
-        // 그때그때 입력이 필요하면 window.prompt 대신 ResultPanel 입력창을 사용
+        // read() at EOF asks the host for another line. The playground answers by
+        // aborting this run with NeedInputException, then replays with the new input.
+        Native.IO.BrowserPromptHandler = prompt =>
+        {
+            if (_allowEof) return null;
+            throw new Native.NeedInputException(prompt ?? "");
+        };
+    }
+
+    [JSExport]
+    public static void SetAllowEof(string value)
+    {
+        _allowEof = string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
     }
 
     [JSExport]
@@ -293,11 +306,13 @@ public partial class UnInterop
     public static string Run(string code)
     {
         var result = PlaygroundRunner.RunCode(code);
+        var needsInput = result.Error?.Contains(nameof(Native.NeedInputException), StringComparison.Ordinal) == true;
         return JsonSerializer.Serialize(new
         {
             stdout = result.Stdout,
-            error = result.Error,
-            timedOut = result.TimedOut
+            error = needsInput ? null : result.Error,
+            timedOut = result.TimedOut,
+            needsInput
         });
     }
 }
