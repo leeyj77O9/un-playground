@@ -15,6 +15,85 @@
   --terminal-green: #a9c9a1;
 
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* Floating Command Bar */
+  --cmd-bg: rgba(251, 248, 239, 0.92);
+  --cmd-border: #ded4bf;
+  --cmd-btn-bg: transparent;
+  --cmd-btn-hover: rgba(180, 85, 45, 0.12);
+  --cmd-btn-active: rgba(180, 85, 45, 0.25);
+  --cmd-icon: #24211b;
+  --cmd-icon-hover: #b4552d;
+  --cmd-text: #24211b;
+  --cmd-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="dark"] {
+  --ivory: #1a1714;
+  --paper: #24211c;
+  --paper-2: #2d2823;
+  --line: #3d352b;
+  --ink: #ece5d5;
+
+  --terminal: #0f0d0b;
+  --terminal-text: #ece5d5;
+  --terminal-dim: #918877;
+  --terminal-red: #f2a08d;
+  --terminal-green: #a9c9a1;
+
+  --cmd-bg: rgba(28, 25, 22, 0.92);
+  --cmd-border: #3d352b;
+  --cmd-btn-hover: rgba(255, 255, 255, 0.08);
+  --cmd-btn-active: rgba(255, 255, 255, 0.15);
+  --cmd-icon: #ece5d5;
+  --cmd-icon-hover: #e8dfca;
+  --cmd-text: #ece5d5;
+  --cmd-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+
+  body {
+    background: var(--ivory);
+    color: var(--ink);
+  }
+
+  .pane-editor {
+    background: var(--paper);
+  }
+
+  .code-gutter {
+    background: var(--paper);
+    border-right-color: var(--line);
+  }
+
+  .code-gutter pre {
+    color: #8a7f6c;
+  }
+
+  .code-highlight {
+    color: var(--ink);
+  }
+
+  .code-input {
+    caret-color: #e8dfca;
+  }
+
+  .un-syntax-keyword   { color: #e8a25c; }
+  .un-syntax-function  { color: #7fb3d5; }
+  .un-syntax-variable  { color: #9bbbd9; }
+  .un-syntax-string    { color: #a9c9a1; }
+  .un-syntax-number    { color: #e8a25c; }
+  .un-syntax-type      { color: #8dd0b8; }
+  .un-syntax-comment   { color: #8a7f6c; font-style: italic; }
+  .un-syntax-module    { color: #8dd0b8; font-weight: 600; }
+  .un-syntax-bracket   { color: #b8a890; }
+  .un-syntax-bracket-0 { color: #e8a25c; }
+  .un-syntax-bracket-1 { color: #c39bd3; }
+  .un-syntax-bracket-2 { color: #7fb3d5; }
+  .un-syntax-decorator { color: #d38cd9; }
+
+  .un-syntax-error {
+    background: rgba(242, 160, 141, 0.13);
+    text-decoration-color: #f2a08d;
+  }
 }
 
 /* ── Base ────────────────────────────────────────────────────────────── */
@@ -256,6 +335,10 @@ body {
   color: var(--terminal-dim);
 }
 
+.terminal-transcript-input {
+  color: var(--terminal-dim);
+}
+
 .terminal-input-line {
   position: sticky;
   bottom: 0;
@@ -263,8 +346,11 @@ body {
   background: var(--terminal);
 }
 
-.terminal-input-line[data-waiting="true"] .terminal-prompt {
-  color: var(--terminal-text);
+.terminal-separator {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.07);
+  margin: 8px 0 4px;
+  display: block;
 }
 
 .terminal-input {
@@ -333,4 +419,82 @@ body {
   .resize-handle {
     display: none;
   }
+}
+
+/* ── Floating Command Bar (Top-slide style) ────────────────────── */
+.command-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.command-bar.collapsed {
+  height: 36px;
+  background: var(--cmd-bg);
+  border-bottom: 1px solid var(--line);
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.command-bar.expanded .command-bar-collapsed {
+  display: none;
+}
+
+.command-bar.expanded .command-bar-expanded {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  min-height: 36px;
+  background: var(--cmd-bg);
+  border-bottom: 1px solid var(--cmd-border);
+  box-shadow: none;
+}
+
+.command-bar.is-exited .command-bar-expanded {
+  display: none;
+}
+
+.command-bar.collapsed .command-bar-expanded {
+  display: none;
+}
+
+@keyframes cmd-expand {
+  from {
+    opacity: 0;
+    height: 40px;
+  }
+  to {
+    opacity: 1;
+    height: auto;
+  }
+}
+
+@keyframes cmd-collapse {
+  from {
+    opacity: 1;
+    height: auto;
+  }
+  to {
+    opacity: 0;
+    height: 40px;
+  }
+}
+
+.command-bar.expanded .command-bar-expanded {
+  animation: cmd-expand 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.command-bar.is-exited .command-bar-expanded.is-exiting {
+  animation: cmd-collapse 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }

@@ -1,5 +1,13 @@
 import './index.css'
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type MouseEvent,
+} from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   getEditorLineNumbers,
@@ -14,12 +22,11 @@ import {
 } from './lib/playground'
 import { useWasm } from './hooks/useWasm'
 
-const MAX_SOURCE = MAX_PLAYGROUND_SOURCE_CHARS
-
 type Phase = 'idle' | 'running' | 'waiting' | 'done'
 
-type InputInsertion = { at: number; value: string }
+type InputInsertion = { at: number; value: string; kind: 'input' | 'output' }
 
+/* ── Source Editor ──────────────────────────────────────────────────── */
 function SourceEditor({
   value,
   onChange,
@@ -96,8 +103,6 @@ function TerminalPanel({
   phase,
   result,
   presentation,
-  stdin,
-  setStdin,
   transcript,
   onStart,
   onContinue,
@@ -106,8 +111,6 @@ function TerminalPanel({
   phase: Phase
   result: ExecutionSnapshot | null
   presentation: ConsolePresentation | null
-  stdin: string
-  setStdin: (next: string) => void
   transcript: string
   onStart: (stdinOverride?: string) => void
   onContinue: (value: string, allowEof?: boolean) => void
@@ -116,41 +119,27 @@ function TerminalPanel({
   const bodyRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState('')
+  const [isComposing, setIsComposing] = useState(false)
 
   useEffect(() => {
     const el = bodyRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [phase, result, transcript, stdin, draft])
+  }, [phase, result, transcript, draft])
 
   useEffect(() => {
     if (phase === 'waiting') inputRef.current?.focus()
   }, [phase])
 
-  const queued = stdin.length > 0 ? stdin.replace(/\n+$/, '').split('\n') : []
   const shownTranscript = transcript.replace(/\n+$/, '')
-
-  const commit = () => {
-    if (draft.trim().length === 0) {
-      setDraft('')
-      return
-    }
-    setStdin(stdin.length > 0 ? `${stdin.replace(/\n+$/, '')}\n${draft}` : draft)
-    setDraft('')
-  }
 
   const focusInput = () => {
     if (window.getSelection()?.toString()) return
     inputRef.current?.focus()
   }
 
-  const removeLast = () => {
-    if (stdin.length === 0) return
-    const lines = stdin.replace(/\n+$/, '').split('\n')
-    lines.pop()
-    setStdin(lines.join('\n'))
-  }
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isComposing) return
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault()
       event.stopPropagation()
@@ -161,9 +150,8 @@ function TerminalPanel({
         return
       }
       if (phase === 'running') return
-      const next = draft.length > 0 ? (stdin.length > 0 ? `${stdin.replace(/\n+$/, '')}\n${draft}` : draft) : undefined
       setDraft('')
-      onStart(next)
+      onStart()
       return
     }
 
@@ -175,20 +163,34 @@ function TerminalPanel({
         setDraft('')
         return
       }
-      commit()
+      setDraft('')
+      onStart()
       return
     }
 
-    if (event.key === 'Backspace' && draft.length === 0 && phase !== 'waiting') {
+    if (phase !== 'waiting') {
       event.preventDefault()
-      removeLast()
     }
+  }
+
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (isComposing) return
+    setDraft(event.target.value)
+  }
+
+  const handleCompositionStart = () => {
+    setIsComposing(true)
+  }
+
+  const handleCompositionEnd = (event: React.CompositionEvent<HTMLInputElement>) => {
+    setIsComposing(false)
+    setDraft((event.target as HTMLInputElement).value)
   }
 
   return (
     <aside className="pane pane-terminal">
       <div ref={bodyRef} className="terminal-body" aria-live="polite" onClick={focusInput}>
-        {phase === 'idle' && queued.length === 0 && (
+        {phase === 'idle' && (
           <div className="terminal-line">
             <span className="terminal-prompt">❯</span>
             <span className="terminal-hint">⌘/Ctrl + Enter to run · ⌘/Ctrl + K to clear</span>
@@ -202,7 +204,9 @@ function TerminalPanel({
           </div>
         )}
 
-        {shownTranscript && <pre className="terminal-out">{shownTranscript}</pre>}
+        {shownTranscript && (
+          <div className="terminal-out" dangerouslySetInnerHTML={{ __html: shownTranscript }} />
+        )}
 
         {phase === 'running' && shownTranscript && (
           <div className="terminal-running">
@@ -218,23 +222,18 @@ function TerminalPanel({
           <div className="terminal-hint">(no output)</div>
         )}
 
-        {(phase === 'idle' || phase === 'done') &&
-          queued.map((line, index) => (
-            <div key={index} className="terminal-line terminal-stdin-line">
-              <span className="terminal-prompt">❯</span>
-              <span>{line}</span>
-            </div>
-          ))}
+        {draft.length > 0 && <div className="terminal-separator" />}
 
         <div className="terminal-line terminal-input-line" data-waiting={phase === 'waiting'}>
-          <span className="terminal-prompt">❯</span>
           <input
             ref={inputRef}
             className="terminal-input"
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={handleChange}
+            onCompositionStart={handleCompositionStart}
+            onCompositionEnd={handleCompositionEnd}
             onKeyDown={handleKeyDown}
-            disabled={phase === 'running'}
+            disabled={phase !== 'waiting'}
             placeholder={phase === 'waiting' ? 'input' : undefined}
             spellCheck={false}
             autoComplete="off"
@@ -256,14 +255,6 @@ export default function Home() {
       return PLAYGROUND_DEFAULT_SOURCE
     }
   })
-  const [stdin, setStdin] = useState(() => {
-    if (typeof window === 'undefined') return ''
-    try {
-      return window.localStorage.getItem(PLAYGROUND_STORAGE_KEYS.stdin) ?? ''
-    } catch {
-      return ''
-    }
-  })
   const [phase, setPhase] = useState<Phase>('idle')
   const [result, setResult] = useState<ExecutionSnapshot | null>(null)
   const [transcript, setTranscript] = useState('')
@@ -274,19 +265,48 @@ export default function Home() {
 
   const sourceRef = useRef(source)
   sourceRef.current = source
-  const stdinRef = useRef(stdin)
-  stdinRef.current = stdin
   const phaseRef = useRef<Phase>(phase)
   const sessionInputsRef = useRef<string[]>([])
   const insertionsRef = useRef<InputInsertion[]>([])
   const lastStdoutRef = useRef('')
   const runSourceRef = useRef('')
 
-  useWasm()
+  // Undo/Redo history
+  const historyRef = useRef<string[]>([source])
+  const historyIndexRef = useRef(0)
+
+  const { wasmReady } = useWasm()
 
   const changePhase = (next: Phase) => {
     phaseRef.current = next
     setPhase(next)
+  }
+
+  // Source history for undo/redo
+  const addToHistory = (next: string) => {
+    if (historyRef.current[historyIndexRef.current] === next) return
+    // Remove any forward history
+    historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1)
+    historyRef.current.push(next)
+    historyIndexRef.current = historyRef.current.length - 1
+  }
+
+  const doUndo = () => {
+    if (historyIndexRef.current > 0) {
+      historyIndexRef.current -= 1
+      isRestoringRef.current = true
+      const prev = historyRef.current[historyIndexRef.current]
+      setSource(prev)
+    }
+  }
+
+  const doRedo = () => {
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      historyIndexRef.current += 1
+      isRestoringRef.current = true
+      const next = historyRef.current[historyIndexRef.current]
+      setSource(next)
+    }
   }
 
   useEffect(() => {
@@ -297,13 +317,16 @@ export default function Home() {
     }
   }, [source])
 
+  // Track source changes for history (skip when we're setting from undo/redo)
+  const isRestoringRef = useRef(false)
+
   useEffect(() => {
-    try {
-      window.localStorage.setItem(PLAYGROUND_STORAGE_KEYS.stdin, stdin)
-    } catch {
-      /* storage unavailable */
+    if (isRestoringRef.current) {
+      isRestoringRef.current = false
+      return
     }
-  }, [stdin])
+    addToHistory(source)
+  }, [source])
 
   useEffect(() => {
     if (!isDragging) return
@@ -323,9 +346,9 @@ export default function Home() {
     }
     const stop = () => setIsDragging(false)
 
-    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mousemove', onMove as unknown as EventListener)
     window.addEventListener('mouseup', stop)
-    window.addEventListener('touchmove', onTouchMove)
+    window.addEventListener('touchmove', onTouchMove as unknown as EventListener)
     window.addEventListener('touchend', stop)
 
     const previousUserSelect = document.body.style.userSelect
@@ -334,9 +357,9 @@ export default function Home() {
     document.body.style.cursor = 'col-resize'
 
     return () => {
-      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mousemove', onMove as unknown as EventListener)
       window.removeEventListener('mouseup', stop)
-      window.removeEventListener('touchmove', onTouchMove)
+      window.removeEventListener('touchmove', onTouchMove as unknown as EventListener)
       window.removeEventListener('touchend', stop)
       document.body.style.userSelect = previousUserSelect
       document.body.style.cursor = previousCursor
@@ -345,9 +368,6 @@ export default function Home() {
 
   const presentation = useMemo(() => (result ? presentExecution(result) : null), [result])
 
-  // The runtime pauses by replaying from the start with the accumulated input.
-  // Each submitted line is inserted at the output offset where execution paused,
-  // so the transcript reads like a real terminal instead of showing duplicates.
   const renderTranscript = (stdout: string) => {
     const insertions = insertionsRef.current
     if (insertions.length === 0) return stdout
@@ -426,12 +446,6 @@ export default function Home() {
         /* stdin is optional */
       }
 
-      try {
-        await invoke('SetAllowEof', allowEof ? 'true' : 'false')
-      } catch {
-        /* older runtimes do not support interactive EOF */
-      }
-
       const raw: any = await invoke('Run', sourceValue)
       const stdout = String(raw?.stdout ?? raw?.Stdout ?? '')
       const error = raw?.error ?? raw?.Error ?? null
@@ -484,22 +498,13 @@ export default function Home() {
         error: { kind: 'service', message },
       })
       changePhase('done')
-    } finally {
-      try {
-        await invoke('SetAllowEof', 'false')
-      } catch {
-        /* older runtimes do not support interactive EOF */
-      }
     }
   }
 
-  const startRun = (stdinOverride?: string) => {
+  const startRun = () => {
     if (phaseRef.current === 'running') return
-    const queue = stdinOverride ?? stdinRef.current
-    const inputs = queue.length > 0 ? queue.replace(/\n+$/, '').split('\n') : []
-    sessionInputsRef.current = inputs
-    setStdin('')
-    void executeRun(inputs, false, false)
+    sessionInputsRef.current = []
+    void executeRun([], false, false)
   }
 
   const continueRun = (value: string, allowEof = false) => {
@@ -511,7 +516,7 @@ export default function Home() {
       runSourceRef.current = sourceRef.current
     }
     const at = lastStdoutRef.current.length
-    insertionsRef.current = [...insertionsRef.current, { at, value }]
+    insertionsRef.current = [...insertionsRef.current, { at, value, kind: 'input' }]
     const inputs = [...sessionInputsRef.current, value]
     sessionInputsRef.current = inputs
     void executeRun(inputs, allowEof, true)
@@ -531,26 +536,9 @@ export default function Home() {
     startRun()
   }
 
-  const clearTerminal = () => {
-    if (phaseRef.current === 'running') return
-    sessionInputsRef.current = []
-    insertionsRef.current = []
-    lastStdoutRef.current = ''
-    runSourceRef.current = ''
-    setTranscript('')
-    setResult(null)
-    setStdin('')
-    changePhase('idle')
-  }
-
   const runRef = useRef(handleRunShortcut)
   useEffect(() => {
     runRef.current = handleRunShortcut
-  })
-
-  const clearRef = useRef(clearTerminal)
-  useEffect(() => {
-    clearRef.current = clearTerminal
   })
 
   useEffect(() => {
@@ -564,9 +552,16 @@ export default function Home() {
         return
       }
 
-      if (event.key.toLowerCase() === 'k') {
+      if (event.key.toLowerCase() === 'z') {
         event.preventDefault()
-        clearRef.current()
+        doUndo()
+        return
+      }
+
+      if (event.key.toLowerCase() === 'y' || (event.key.toLowerCase() === 'z' && event.shiftKey)) {
+        event.preventDefault()
+        doRedo()
+        return
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -602,8 +597,6 @@ export default function Home() {
           phase={phase}
           result={result}
           presentation={presentation}
-          stdin={stdin}
-          setStdin={setStdin}
           transcript={transcript}
           onStart={startRun}
           onContinue={continueRun}
