@@ -1,0 +1,177 @@
+name: Update WASM
+
+# Rebuilds the Blazor WASM bundle from the latest `un` source and commits it
+# into web/public/_framework. Vercel then deploys the updated site.
+#
+# No secret is required: this runs on a schedule and on manual dispatch.
+# The `repository_dispatch` trigger is optional and lets the `un` repo request
+# an immediate rebuild (see the README for the PAT setup).
+
+on:
+  schedule:
+    # Check every 10 minutes. The job exits immediately when `un` has not
+    # changed, so this is cheap. Public repositories have free Actions minutes.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      un_ref:
+        description: 'un branch, tag, or commit SHA'
+        required: false
+        default: 'main'
+      force:
+        description: 'Rebuild even if the source SHA has not changed'
+        type: boolean
+        required: false
+        default: false
+  repository_dispatch:
+    types: [un-push]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-wasm
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Resolve un revision
+        id: un
+        shell: bash
+        env:
+          UN_REF: ${{ github.event.client_payload.un_ref || github.event.inputs.un_ref || 'main' }}
+        run: |
+          set -euo pipefail
+          ref="$UN_REF"
+
+          if [[ "$ref" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+            sha="$ref"
+          else
+            sha="$(git ls-remote https://github.com/leeyj77O9/un.git "refs/heads/$ref" | awk 'NR==1 { print $1 }')"
+            if [[ -z "$sha" ]]; then
+              # Prefer the peeled commit for annotated tags.
+              sha="$(git ls-remote https://github.com/leeyj77O9/un.git "refs/tags/$ref^{}" | awk 'NR==1 { print $1 }')"
+            fi
+            if [[ -z "$sha" ]]; then
+              sha="$(git ls-remote https://github.com/leeyj77O9/un.git "refs/tags/$ref" | awk 'NR==1 { print $1 }')"
+            fi
+          fi
+
+          if [[ -z "$sha" ]]; then
+            echo "::error::Could not resolve un ref: $ref"
+            exit 1
+          fi
+
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "short=${sha:0:7}" >> "$GITHUB_OUTPUT"
+          echo "Resolved un/$ref -> $sha"
+
+      - name: Read last built revision
+        id: last
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          last=""
+          if content="$(gh api "repos/${{ github.repository }}/contents/.wasm-source-sha?ref=main" --jq '.content' 2>/dev/null)"; then
+            last="$(printf '%s' "$content" | base64 -d | tr -d '\r\n')"
+          fi
+          echo "sha=$last" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether rebuild is needed
+        id: check
+        shell: bash
+        env:
+          LAST: ${{ steps.last.outputs.sha }}
+          UN_SHA: ${{ steps.un.outputs.sha }}
+          UN_SHORT: ${{ steps.un.outputs.short }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: |
+          set -euo pipefail
+          if [[ "$FORCE" == "true" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Forced rebuild from un@$UN_SHORT"
+          elif [[ "$LAST" == "$UN_SHA" ]]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "WASM is already built from un@$UN_SHORT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "WASM needs rebuild: ${LAST:-<none>} -> $UN_SHA"
+          fi
+
+      - name: Checkout un-playground
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: un-playground
+          fetch-depth: 0
+
+      - name: Checkout un
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: leeyj77O9/un
+          ref: ${{ steps.un.outputs.sha }}
+          path: un
+          fetch-depth: 1
+
+      - name: Setup .NET 8
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Test un
+        if: steps.check.outputs.changed == 'true'
+        working-directory: un
+        run: dotnet run --project Un.csproj -c Release -- run test/test_suite.un
+
+      - name: Install wasm-tools
+        if: steps.check.outputs.changed == 'true'
+        run: dotnet workload install wasm-tools
+
+      - name: Build WASM
+        if: steps.check.outputs.changed == 'true'
+        run: dotnet build un-playground/Un.Playground.Wasm/Un.Playground.Wasm.csproj -c Release --nologo
+
+      - name: Copy _framework
+        if: steps.check.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="un-playground/Un.Playground.Wasm/bin/Release/net8.0/wwwroot/_framework"
+          dest="un-playground/web/public/_framework"
+          if [[ ! -d "$src" ]]; then
+            echo "::error::WASM build output not found: $src"
+            exit 1
+          fi
+          rm -rf "$dest"
+          mkdir -p "$dest"
+          cp -R "$src/." "$dest/"
+
+      - name: Commit and push
+        if: steps.check.outputs.changed == 'true'
+        shell: bash
+        working-directory: un-playground
+        env:
+          UN_SHA: ${{ steps.un.outputs.sha }}
+          UN_SHORT: ${{ steps.un.outputs.short }}
+        run: |
+          set -euo pipefail
+          echo "$UN_SHA" > .wasm-source-sha
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A web/public/_framework .wasm-source-sha
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "chore: rebuild WASM from un@${UN_SHORT}"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
