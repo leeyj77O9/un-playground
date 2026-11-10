@@ -27,11 +27,34 @@ public partial class UnInterop
         _allowEof = string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
     }
 
-    [JSExport]
-    public static string GetVersion() => "2026-08-31T00:00 refactor-cleanup";
-
     private static NativeAttribute? GetNativeAttr(MemberInfo m) =>
         m.GetCustomAttributes(typeof(NativeAttribute), false).FirstOrDefault() as NativeAttribute;
+
+    // ArgumentTypes는 Self 파라미터를 제외한 순서와 일치한다
+    private static object[] BuildNativeParameters(MethodInfo m, NativeAttribute attr)
+    {
+        var argTypes = attr.ArgumentTypes ?? [];
+        var list = new List<object>();
+        var index = 0;
+        foreach (var p in m.GetParameters())
+        {
+            if (p.GetCustomAttributes(typeof(Un.Reflection.SelfAttribute), false).Length > 0) continue;
+            var j = index++;
+            var info = p.GetCustomAttributes(typeof(Un.Reflection.ArgInfoAttribute), false)
+                .OfType<Un.Reflection.ArgInfoAttribute>()
+                .FirstOrDefault();
+            var expectedType = j < argTypes.Length ? argTypes[j] : p.ParameterType.Name;
+            list.Add(new
+            {
+                name = info?.Name ?? p.Name,
+                expectedType,
+                essential = info?.Essential ?? false,
+                optional = info?.Optional ?? p.IsOptional,
+                positional = info?.Positional ?? false,
+            });
+        }
+        return list.ToArray();
+    }
 
     private static BuiltinTypeAttribute? GetBuiltinTypeAttr(Type t) =>
         t.GetCustomAttributes(typeof(BuiltinTypeAttribute), false).FirstOrDefault() as BuiltinTypeAttribute;
@@ -43,113 +66,6 @@ public partial class UnInterop
     {
         var f = typeof(Global).GetField("natives", BindingFlags.NonPublic | BindingFlags.Static);
         return f?.GetValue(null) as Dictionary<string, Type>;
-    }
-
-    private static Type? FindBuiltinType(string name) =>
-        typeof(Global).Assembly.GetTypes()
-            .Concat(Assembly.GetExecutingAssembly().GetTypes())
-            .FirstOrDefault(t => GetBuiltinTypeAttr(t)?.Name == name || GetNativeTypeAttr(t)?.Name == name);
-
-    [JSExport]
-    public static string GetHoverInfo(string word)
-    {
-        try
-        {
-            var priority = new[] { "IO", "Builtin", "Stream", "Math", "Iter" };
-            var allTypes = typeof(Global).Assembly.GetTypes()
-                .Concat(Assembly.GetExecutingAssembly().GetTypes())
-                .OrderBy(t => {
-                    var idx = Array.IndexOf(priority, t.Name);
-                    return idx >= 0 ? idx : 100;
-                });
-            foreach (var t in allTypes)
-            {
-                foreach (var m in t.GetMethods(BindingFlags.Public | BindingFlags.Static))
-                {
-                    var attr = GetNativeAttr(m);
-                    if (attr == null) continue;
-                    var name = attr.Name ?? m.Name;
-                    if (name == word || m.Name == word)
-                    {
-                        return JsonSerializer.Serialize(new
-                        {
-                            name,
-                            description = attr.Description ?? "",
-                            example = attr.Example ?? "",
-                            returnType = attr.ReturnType ?? "",
-                            argumentTypes = attr.ArgumentTypes ?? Array.Empty<string>(),
-                            method = m.Name,
-                            type = t.Name
-                        });
-                    }
-                }
-            }
-            return "null";
-        }
-        catch (Exception ex) { return JsonSerializer.Serialize(new { error = ex.Message }); }
-    }
-
-    [JSExport]
-    public static string GetModuleMembers(string moduleName)
-    {
-        try
-        {
-            if (moduleName.StartsWith("type:"))
-            {
-                var typeName = moduleName.Substring(5);
-                var type = FindBuiltinType(typeName);
-                if (type != null)
-                {
-                    var members = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance)
-                        .Select(m => GetNativeAttr(m))
-                        .Where(a => a != null)
-                        .Select(a => new { name = a!.Name, description = a!.Description, returnType = a!.ReturnType })
-                        .ToArray();
-
-                    if (members.Length == 0)
-                    {
-                        var dictField = typeof(Global).GetField("originalClasses", BindingFlags.NonPublic | BindingFlags.Static);
-                        var origDict = dictField?.GetValue(null) as Dictionary<string, Dictionary<string, Un.Object.Obj>>;
-                        if (origDict != null && origDict.TryGetValue(typeName, out var attrs))
-                        {
-                            members = attrs.Select(kv => {
-                                var m = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                                    .FirstOrDefault(x => x.Name == kv.Key || GetNativeAttr(x)?.Name == kv.Key);
-                                var a = m != null ? GetNativeAttr(m) : null;
-                                return new { name = kv.Key, description = a?.Description ?? "", returnType = a?.ReturnType ?? "" };
-                            }).ToArray();
-                        }
-                    }
-                    return JsonSerializer.Serialize(members);
-                }
-                return "[]";
-            }
-
-            var natives = GetNativesDict();
-            if (natives != null && natives.TryGetValue(moduleName, out var t2))
-            {
-                var members = t2.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                    .Select(m => GetNativeAttr(m))
-                    .Where(a => a != null)
-                    .Select(a => new { name = a!.Name, description = a!.Description, returnType = a!.ReturnType })
-                    .ToArray();
-                return JsonSerializer.Serialize(members);
-            }
-
-            if (moduleName == "builtin")
-            {
-                var bt = typeof(Un.Native.Builtin);
-                var members = bt.GetMethods(BindingFlags.Public | BindingFlags.Static)
-                    .Select(m => GetNativeAttr(m))
-                    .Where(a => a != null)
-                    .Select(a => new { name = a!.Name, description = a!.Description, returnType = a!.ReturnType })
-                    .ToArray();
-                return JsonSerializer.Serialize(members);
-            }
-
-            return "[]";
-        }
-        catch (Exception ex) { return JsonSerializer.Serialize(new { error = ex.Message }); }
     }
 
     [JSExport]
@@ -175,9 +91,7 @@ public partial class UnInterop
                             description = a.Description ?? "",
                             example = a.Example ?? "",
                             returnType = a.ReturnType ?? "",
-                            parameters = m.GetParameters()
-                                .Where(p => p.GetCustomAttributes(typeof(Un.Reflection.SelfAttribute), false).Length == 0)
-                                .Select(p => new { name = p.Name, expectedType = p.Name }).ToArray()
+                            parameters = BuildNativeParameters(m, a)
                         });
                     }
                 }
@@ -195,7 +109,7 @@ public partial class UnInterop
                     description = a.Description ?? "",
                     example = a.Example ?? "",
                     returnType = a.ReturnType ?? "",
-                    parameters = Array.Empty<object>()
+                    parameters = BuildNativeParameters(m, a)
                 });
             }
 
@@ -216,7 +130,7 @@ public partial class UnInterop
                         description = a.Description ?? "",
                         example = a.Example ?? "",
                         returnType = a.ReturnType ?? "",
-                        parameters = Array.Empty<object>()
+                        parameters = BuildNativeParameters(m, a)
                     });
                 }
             }
@@ -224,66 +138,6 @@ public partial class UnInterop
             return JsonSerializer.Serialize(result);
         }
         catch (Exception ex) { return JsonSerializer.Serialize(new { error = ex.Message }); }
-    }
-
-    [JSExport]
-    public static string GetBuiltinTypes(string _dummy = "")
-    {
-        try
-        {
-            var list = new List<object>();
-            var known = new HashSet<string>();
-            foreach (var t in typeof(Global).Assembly.GetTypes()
-                .Concat(Assembly.GetExecutingAssembly().GetTypes())
-                .Where(t => GetBuiltinTypeAttr(t) != null))
-            {
-                var attr = GetBuiltinTypeAttr(t)!;
-                known.Add(attr.Name);
-                list.Add(new { name = attr.Name, description = attr.Description ?? "", example = attr.Example ?? "" });
-            }
-            foreach (var fb in new[] { "json", "type", "any" })
-                if (!known.Contains(fb))
-                    list.Add(new { name = fb, description = $"Builtin type {fb}.", example = $"x: {fb}" });
-            return JsonSerializer.Serialize(list);
-        }
-        catch (Exception ex) { return JsonSerializer.Serialize(new { error = ex.Message }); }
-    }
-
-    [JSExport]
-    public static string Diagnose(string code)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(code)) return "[]";
-            var source = new Source("memory://playground.un", code);
-            var lexer = new Lexer(source);
-            var tokens = lexer.Lex();
-            var scope = new Scope(Global.GetGlobalScope());
-            var context = new Context(scope, source, []);
-            var parser = new Parser(tokens, context);
-            parser.Parse();
-            return "[]";
-        }
-        catch (Error e)
-        {
-            var diag = new[]
-            {
-                new {
-                    message = e.Message,
-                    header = e.Header,
-                    start = e.Start,
-                    length = e.Lenght,
-                    line = e.File.GetLine(e.Start),
-                    column = e.File.GetColumn(e.Start)
-                }
-            };
-            return JsonSerializer.Serialize(diag);
-        }
-        catch (Exception ex)
-        {
-            var diag = new[] { new { message = ex.Message, header = "error", start = 0, length = 1, line = 1, column = 1 } };
-            return JsonSerializer.Serialize(diag);
-        }
     }
 
     [JSExport]
