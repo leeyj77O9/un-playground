@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { UnNativeFunctionMetadata } from '../lib/playground'
-import { setBuiltinTypeInfo } from '../lib/playground'
 
 // 초기 fallback — WASM 로드 전에도 자동완성이 동작하도록 최소 카탈로그
-// 실제 값은 WASM의 GetAllNativeFunctions(247개)로 교체됨
+// 실제 값은 WASM의 GetAllNativeFunctions로 교체됨
 export const FALLBACK_NATIVE_FUNCTIONS: UnNativeFunctionMetadata[] = [
   { name: 'len', module: 'builtin', description: 'Returns the number of items in a collection.', example: 'write(len(items))', returnType: 'int', parameters: [{ name: 'value', expectedType: 'collection', essential: true, optional: false, positional: false }] },
   { name: 'type', module: 'builtin', description: 'Returns the UN type of a value.', example: 'write(type(value))', returnType: 'type', parameters: [{ name: 'value', expectedType: 'any', essential: true, optional: false, positional: false }] },
@@ -23,7 +22,6 @@ declare global {
 }
 
 export function useWasm() {
-  const [wasmReady, setWasmReady] = useState(false)
   const [nativeFunctions, setNativeFunctions] = useState<UnNativeFunctionMetadata[]>(FALLBACK_NATIVE_FUNCTIONS as any)
 
   // 디버깅용 노출 — Playwright 테스트에서 window.__nativeFunctions로 검증
@@ -73,7 +71,6 @@ export function useWasm() {
           try { return JSON.parse(raw as any) } catch { return raw as any }
         }
 
-        setWasmReady(true)
         console.log('[wasm] ready', config.mainAssemblyName)
 
         try { await window.dotnetInvoke!('InitPromptHandler', '') } catch {}
@@ -86,14 +83,6 @@ export function useWasm() {
             console.log('[wasm] native catalog', arr.length)
           }
         } catch {}
-        try {
-          const bt = await window.dotnetInvoke!('GetBuiltinTypes', '')
-          const arrBt = Array.isArray(bt) ? bt : (typeof bt === 'string' ? JSON.parse(bt as string) : [])
-          if (Array.isArray(arrBt) && arrBt.length > 0) {
-            setBuiltinTypeInfo(arrBt as any)
-            console.log('[wasm] builtin types', arrBt.length)
-          }
-        } catch {}
       } catch (e) {
         console.warn('[wasm] init failed (fallback demo mode)', e)
       }
@@ -103,5 +92,5 @@ export function useWasm() {
     return () => { cancelled = true }
   }, [])
 
-  return { wasmReady, nativeFunctions }
+  return { nativeFunctions }
 }

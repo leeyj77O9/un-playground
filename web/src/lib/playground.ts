@@ -3,8 +3,6 @@ io.write("Hello, World!")`;
 export const MAX_PLAYGROUND_SOURCE_CHARS = 12_000;
 export const PLAYGROUND_STORAGE_KEYS = {
   source: "un-playground-source-v1",
-  lastExportedSource: "un-playground-last-exported-source-v1",
-  stdin: "un-playground-stdin-v1",
 } as const;
 
 export type ExecutionStatus = "success" | "error" | "rejected" | "timed_out" | "cancelled";
@@ -20,30 +18,6 @@ export type ExecutionSnapshot = {
 export function restoreSavedSource(savedSource: string | null): string {
   if (savedSource === null || savedSource.length > MAX_PLAYGROUND_SOURCE_CHARS) return PLAYGROUND_DEFAULT_SOURCE;
   return savedSource;
-}
-
-export function createUnExportFilename(): string {
-  return "un-current-code.un";
-}
-
-export function hasUnexportedSourceChanges(source: string, lastExportedSource: string): boolean {
-  return source !== lastExportedSource;
-}
-
-export function normalizeUnExportFilename(value: string): { filename?: string; error?: string } {
-  const basename = value.trim().replace(/\.un$/i, "");
-  if (!basename) return { error: "Enter a file name." };
-  if (basename.length > 64) return { error: "Use a file name with 64 characters or fewer." };
-  if (basename === "." || basename === ".." || /[\\/:*?"<>|\u0000-\u001f]/.test(basename)) {
-    return { error: "The file name contains unsupported characters." };
-  }
-  return { filename: `${basename}.un` };
-}
-
-export function validateImportedUnFile(fileName: string, contents: string): { source?: string; error?: string } {
-  if (!fileName.toLowerCase().endsWith(".un")) return { error: "Choose a .un file." };
-  if (contents.length > MAX_PLAYGROUND_SOURCE_CHARS) return { error: `The file must be ${MAX_PLAYGROUND_SOURCE_CHARS.toLocaleString()} characters or fewer.` };
-  return { source: contents };
 }
 
 export function getEditorLineNumbers(source: string): string {
@@ -67,7 +41,7 @@ const UN_BUILTIN_TYPES = new Set([
   "int", "str", "bool", "float", "list", "dict", "set", "tuple", "json", "type", "any",
 ]);
 
-export const NATIVE_TYPE_FOR_MODULE: Record<string, string[]> = {
+const NATIVE_TYPE_FOR_MODULE: Record<string, string[]> = {
   io: ["stream"],
   flow: ["pool", "lock"],
   iter: ["range", "counter", "reverse", "repeat"],
@@ -80,13 +54,7 @@ const UN_MODULES = new Set([
   "io", "fs", "math", "iter", "re", "random", "sys", "time", "http", "ws", "inspect", "flow", "builtin",
 ]);
 
-const BUILTIN_TYPE_INFO = new Map<string, { description: string; example: string }>();
-export function setBuiltinTypeInfo(list: Array<{ name: string; description: string; example: string }>) {
-  BUILTIN_TYPE_INFO.clear();
-  for (const e of list) BUILTIN_TYPE_INFO.set(e.name, { description: e.description, example: e.example });
-}
-
-export function extractUnClassNames(source: string): string[] {
+function extractUnClassNames(source: string): string[] {
   const names: string[] = []
   const re = /^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)/gm
   let m: RegExpExecArray | null
@@ -94,7 +62,7 @@ export function extractUnClassNames(source: string): string[] {
   return [...new Set(names)]
 }
 
-export function extractUnClassMethods(source: string): Record<string, string[]> {
+function extractUnClassMethods(source: string): Record<string, string[]> {
   const lines = source.split('\n')
   const result: Record<string, string[]> = {}
   let currentClass: string | null = null
@@ -150,62 +118,15 @@ export type UnNativeFunctionMetadata = {
   }>;
 };
 
-export type UnNativeApiModule = {
-  id: string;
-  label: string;
-  count: number;
-};
-
-export function formatUnNativeModule(module: string): string {
-  return module.startsWith("type:") ? `${module.slice("type:".length)} methods` : module;
-}
-
-export function getUnNativeApiModules(nativeFunctions: readonly UnNativeFunctionMetadata[]): UnNativeApiModule[] {
-  const modules = new Map<string, number>();
-
-  nativeFunctions.forEach((entry) => modules.set(entry.module, (modules.get(entry.module) ?? 0) + 1));
-
-  return Array.from(modules, ([id, count]) => ({ id, label: formatUnNativeModule(id), count }))
-    .sort((left, right) => left.label.localeCompare(right.label));
-}
-
-export function searchUnNativeFunctions(nativeFunctions: readonly UnNativeFunctionMetadata[], query = "", module = "all"): UnNativeFunctionMetadata[] {
-  const normalizedQuery = query.trim().toLowerCase();
-
-  return nativeFunctions
-    .filter((entry) => module === "all" || entry.module === module)
-    .filter((entry) => {
-      if (!normalizedQuery) return true;
-      const searchable = [entry.name, entry.module, entry.description, entry.example, entry.returnType, ...entry.parameters.map((parameter) => `${parameter.name} ${parameter.expectedType}`)]
-        .join(" ")
-        .toLowerCase();
-      return searchable.includes(normalizedQuery);
-    })
-    .sort((left, right) => left.module.localeCompare(right.module) || left.name.localeCompare(right.name));
-}
-
 const IDENTIFIER_CHARACTER = /[A-Za-z0-9_]/;
 const IDENTIFIER_START = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const FUNCTION_DECLARATION_PATTERN = /^\s*fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?::\s*([A-Za-z_][A-Za-z0-9_]*))?/gm;
-const KEYWORD_PREVIEWS: Record<string, { description: string; example: string }> = {
-  fn: { description: "Defines a reusable function.", example: "fn greet(name)\n    write(name)" },
-  if: { description: "Runs an indented block when the condition is true.", example: "if score >= 60\n    write(\"pass\")" },
-  for: { description: "Iterates over values from an iterable.", example: "for item in items\n    write(item)" },
-  while: { description: "Repeats an indented block while the condition is true.", example: "while count < 3\n    count += 1" },
-  "->": { description: "Returns a value from the current function.", example: "fn add(a, b) -> a + b" },
-  write: { description: "Writes values to standard output.", example: "write(\"Hello\", \"UN\")" },
-  range: { description: "Creates a sequence of numbers.", example: "for index in range(0, 3)\n    write(index)" },
-  len: { description: "Returns the number of items in a value.", example: "write(len(items))" },
-  map: { description: "Transforms every value in an iterable.", example: "doubled = map(double, values)" },
-  filter: { description: "Keeps iterable values that satisfy a predicate.", example: "positives = filter(is_positive, values)" },
-};
-
 function addUnSourceSymbol(symbols: Map<string, UnAutocompleteKind>, label: string, kind: UnAutocompleteKind) {
   if (!IDENTIFIER_START.test(label) || UN_KEYWORDS.has(label)) return;
   symbols.set(label, kind);
 }
 
-export function extractUnSourceSymbols(source: string): UnAutocompleteCandidate[] {
+function extractUnSourceSymbols(source: string): UnAutocompleteCandidate[] {
   const symbols = new Map<string, UnAutocompleteKind>();
   const detailMap = new Map<string, string>()
   const classMethods = extractUnClassMethods(source)
@@ -298,16 +219,12 @@ export function extractUnSourceSymbols(source: string): UnAutocompleteCandidate[
     .map(([label, kind]) => ({ label, kind, detail: detailMap.get(label) ?? (kind === "function" ? "defined function" : kind === "method" ? "class method" : "defined variable") }));
 }
 
-export function extractUnFunctionParameters(source: string): Record<string, string[]> {
-  return Object.fromEntries(Object.entries(extractUnFunctionSignatures(source)).map(([name, signature]) => [name, signature.parameters]));
-}
-
-export type UnFunctionSignature = {
+type UnFunctionSignature = {
   parameters: string[];
   returnType: string;
 };
 
-export function extractUnFunctionSignatures(source: string): Record<string, UnFunctionSignature> {
+function extractUnFunctionSignatures(source: string): Record<string, UnFunctionSignature> {
   const signatures: Record<string, UnFunctionSignature> = {};
   const functionPattern = new RegExp(FUNCTION_DECLARATION_PATTERN.source, "gm");
   let match: RegExpExecArray | null;
@@ -328,20 +245,66 @@ export function extractUnFunctionSignatures(source: string): Record<string, UnFu
   return signatures;
 }
 
-export function extractUnFunctionReturnTypes(source: string): Record<string, string> {
+function extractUnFunctionReturnTypes(source: string): Record<string, string> {
   return Object.fromEntries(Object.entries(extractUnFunctionSignatures(source)).map(([name, signature]) => [name, signature.returnType]));
 }
 
-export type UnCallContext = {
+type UnCallContext = {
   functionName: string;
   argumentIndex: number;
 };
 
-export function getUnCallContext(source: string, cursor: number): UnCallContext | null {
+type UnRawCallContext = UnCallContext & { nameStart: number };
+
+// 케어가 문자열 리터럴 내부인지 — 따옴표(이스케이프) 짝짓기로 판정
+export function isUnInsideString(source: string, cursor: number): boolean {
+  const end = Math.max(0, Math.min(cursor, source.length));
+  let quote: string | null = null;
+  for (let index = 0; index < end; index++) {
+    const character = source[index];
+    if (quote) {
+      if (character === "\\") { index++; continue; }
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") quote = character;
+  }
+  return quote !== null;
+}
+
+// 문자열 리터럴(escape 포함) 구간의 마스크 — 괄호/콤마 계산에서 제외하기 위함
+function buildUnStringMask(source: string, end: number): Uint8Array {
+  const mask = new Uint8Array(end);
+  let quote: string | null = null;
+  for (let index = 0; index < end; index++) {
+    const character = source[index];
+    if (quote) {
+      mask[index] = 1;
+      if (character === "\\") {
+        if (index + 1 < end) mask[index + 1] = 1;
+        index++;
+        continue;
+      }
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      mask[index] = 1;
+    }
+  }
+  return mask;
+}
+
+function findUnCallContext(source: string, cursor: number): UnRawCallContext | null {
   const end = Math.max(0, Math.min(cursor, source.length));
   let nestedDepth = 0;
 
+  // 문자열 안에서 괄호/콤마를 잘못 세지 않도록 마스크 생성
+  const stringMask = buildUnStringMask(source, end);
+
   for (let index = end - 1; index >= 0; index--) {
+    if (stringMask[index]) continue;
     const character = source[index];
     if (character === ")" || character === "]" || character === "}") {
       nestedDepth++;
@@ -365,56 +328,139 @@ export function getUnCallContext(source: string, cursor: number): UnCallContext 
     let argumentIndex = 0;
     let argumentDepth = 0;
     for (let argumentPosition = index + 1; argumentPosition < end; argumentPosition++) {
+      if (stringMask[argumentPosition]) continue;
       const argumentCharacter = source[argumentPosition];
       if (argumentCharacter === "(" || argumentCharacter === "[" || argumentCharacter === "{") argumentDepth++;
       else if (argumentCharacter === ")" || argumentCharacter === "]" || argumentCharacter === "}") argumentDepth = Math.max(0, argumentDepth - 1);
       else if (argumentCharacter === "," && argumentDepth === 0) argumentIndex++;
     }
 
-    return { functionName, argumentIndex };
+    return { functionName, argumentIndex, nameStart: functionStart };
   }
 
   return null;
 }
 
-export function getUnFunctionArgumentCandidates(source: string, cursor: number, nativeFunctions: readonly UnNativeFunctionMetadata[] = []): UnAutocompleteCandidate[] {
-  const context = getUnCallContext(source, cursor);
-  if (!context) return [];
+type UnSignatureHelpContext = UnCallContext & {
+  qualifier: string | null;
+};
 
-  const declaredParameters = extractUnFunctionParameters(source)[context.functionName];
-  let nativeFunction = nativeFunctions.find((entry) => entry.name === context.functionName);
-  // use 하지 않은 패키지의 네이티브 함수 인자는 제안하지 않음
-  if (nativeFunction && nativeFunction.module !== "builtin" && !nativeFunction.module.startsWith("type:")) {
-    const used = getUsedNativeModules(source.slice(0, cursor));
-    if (!used.has(nativeFunction.module)) nativeFunction = undefined;
+function getUnSignatureHelpContext(source: string, cursor: number): UnSignatureHelpContext | null {
+  const raw = findUnCallContext(source, cursor);
+  if (!raw) return null;
+
+  let qualifier: string | null = null;
+  const dotIndex = raw.nameStart - 1;
+  if (source[dotIndex] === ".") {
+    let qualifierStart = dotIndex;
+    while (qualifierStart > 0 && IDENTIFIER_CHARACTER.test(source[qualifierStart - 1] ?? "")) qualifierStart--;
+    const candidate = source.slice(qualifierStart, dotIndex);
+    if (IDENTIFIER_START.test(candidate)) qualifier = candidate;
   }
-  const parameter = declaredParameters?.[context.argumentIndex] ?? nativeFunction?.parameters[context.argumentIndex]?.name;
-  const query = getUnAutocompleteRange(source, cursor).query.toLowerCase();
 
-  if (!parameter || (query && !parameter.toLowerCase().startsWith(query))) return [];
-  return [{ label: parameter, kind: "argument", detail: `argument of ${context.functionName}` }];
+  return { functionName: raw.functionName, argumentIndex: raw.argumentIndex, qualifier };
 }
 
-export function getUnAutocompleteTypeHint(source: string, candidate: UnAutocompleteCandidate, nativeFunctions: readonly UnNativeFunctionMetadata[] = []): string | null {
-  if (candidate.kind !== "argument") return null;
+export type UnSignatureHelp = {
+  displayName: string;
+  kind: "native" | "user";
+  module: string | null;
+  description: string;
+  example: string;
+  returnType: string;
+  parameters: Array<{
+    name: string;
+    expectedType: string;
+    essential: boolean;
+    optional: boolean;
+    positional: boolean;
+  }>;
+  activeIndex: number;
+};
 
-  const functionName = candidate.detail.replace(/^argument of\s+/, "");
-  const nativeHint = nativeFunctions.find((entry) => entry.name === functionName)?.parameters.find((parameter) => parameter.name === candidate.label)?.expectedType;
-  if (nativeHint) return nativeHint;
+export function getUnSignatureHelp(source: string, cursor: number, nativeFunctions: readonly UnNativeFunctionMetadata[] = []): UnSignatureHelp | null {
+  if (isUnInsideString(source, cursor)) return null;
 
-  const parameterNames = extractUnFunctionParameters(source)[functionName];
-  if (!parameterNames?.includes(candidate.label)) return "any";
+  const context = getUnSignatureHelpContext(source, cursor);
+  if (!context) return null;
 
-  const lowerName = candidate.label.toLowerCase();
-  if (/^(is_|has_|can_|should_|enabled|visible|reverse)/.test(lowerName)) return "boolean";
-  if (/(count|index|size|limit|offset|step|age|year|total)$/.test(lowerName)) return "integer";
-  if (/(name|title|text|message|label|path|prompt|greeting|suffix|prefix)$/.test(lowerName)) return "string";
-  if (/(items|values|entries|list|tuple|args)$/.test(lowerName)) return "iterable";
-  if (/(callback|handler|predicate|transform|function)$/.test(lowerName)) return "function";
-  return "any";
+  try {
+    const { qualifier, functionName, argumentIndex } = context;
+    const displayName = qualifier ? `${qualifier}.${functionName}` : functionName;
+
+    let entry: UnNativeFunctionMetadata | undefined;
+
+    // 1) qualifier: use io as mio → mio.write / receiver.method( (native type 메서드)
+    if (qualifier) {
+      const used = getUsedNativeModuleMap(source);
+      const mod = used.get(qualifier);
+      if (mod) entry = nativeFunctions.find((candidate) => candidate.module === mod && candidate.name === functionName);
+      if (!entry) {
+        const receiverType = getUnExpressionType(
+          qualifier,
+          getUnInferredSymbolTypes(source, nativeFunctions),
+          extractUnFunctionReturnTypes(source),
+          nativeFunctions,
+        );
+        if (receiverType) {
+          entry = nativeFunctions.find((candidate) => candidate.module === `type:${receiverType}` && candidate.name === functionName);
+        }
+      }
+    }
+
+    // 2) builtin
+    if (!entry) {
+      entry = nativeFunctions.find((candidate) => candidate.module === "builtin" && candidate.name === functionName);
+    }
+
+    // 3) bare import: use io (+ write) → write(
+    if (!entry) {
+      const usedModules = new Set(getUsedNativeModuleMap(source).values());
+      const matches = nativeFunctions.filter((candidate) => !candidate.module.startsWith("type:") && candidate.module !== "builtin" && usedModules.has(candidate.module) && candidate.name === functionName);
+      if (matches.length === 1) entry = matches[0];
+    }
+
+    if (entry) {
+      return {
+        displayName,
+        kind: "native",
+        module: entry.module,
+        description: entry.description,
+        example: entry.example,
+        returnType: entry.returnType,
+        parameters: entry.parameters,
+        activeIndex: entry.parameters.length === 0 ? 0 : Math.min(argumentIndex, entry.parameters.length - 1),
+      };
+    }
+
+    // 4) user-defined function
+    const userSignature = extractUnFunctionSignatures(source)[functionName];
+    if (userSignature) {
+      return {
+        displayName,
+        kind: "user",
+        module: null,
+        description: "defined in this file",
+        example: "",
+        returnType: userSignature.returnType,
+        parameters: userSignature.parameters.map((name) => ({
+          name,
+          expectedType: "any",
+          essential: true,
+          optional: false,
+          positional: false,
+        })),
+        activeIndex: userSignature.parameters.length === 0 ? 0 : Math.min(argumentIndex, userSignature.parameters.length - 1),
+      };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
 }
 
-export function getUsedNativeModuleMap(source: string): Map<string, string> {
+function getUsedNativeModuleMap(source: string): Map<string, string> {
   const map = new Map<string, string>();
   // use io / use io as mio / use math as m / use re { test } / use fs.path 등
   // use io { write, read as r, * } / use io { write } as mio 도 지원 — { }가 as보다 먼저 옴 (Parser 순서)
@@ -431,7 +477,7 @@ export function getUsedNativeModuleMap(source: string): Map<string, string> {
   return map;
 }
 
-export function getBareImportMap(source: string): Map<string, Set<string>> {
+function getBareImportMap(source: string): Map<string, Set<string>> {
   const map = new Map<string, Set<string>>();
   // use io { write, read as r, * } / use io { write } as mio — { }가 as보다 먼저
   const pattern = /^\s*use\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\{\s*([^}]*)\s*\}(?:\s+as\s+[A-Za-z_][A-Za-z0-9_]*)?/gm;
@@ -460,10 +506,6 @@ export function getBareImportMap(source: string): Map<string, Set<string>> {
   return map;
 }
 
-export function getUsedNativeModules(source: string): Set<string> {
-  return new Set(getUsedNativeModuleMap(source).values());
-}
-
 export function getUnAutocompleteRange(source: string, cursor: number): UnAutocompleteRange {
   const end = Math.max(0, Math.min(cursor, source.length));
   let start = end;
@@ -476,10 +518,6 @@ export function getUnAutocompleteRange(source: string, cursor: number): UnAutoco
 export function getUnAutocompleteCandidates(source: string, query: string, nativeFunctions: readonly UnNativeFunctionMetadata[] = [], limit = 8): UnAutocompleteCandidate[] {
   const normalizedQuery = query.toLowerCase();
   if (!normalizedQuery) {
-    // 타입 위치에서는 빈 쿼리에도 타입/클래스 제안 (예: x: |, fn foo(a: |))
-    // cursor 위치는 호출부에서 source+cursor로 판단해야 하므로 여기서는 빈 쿼리 시에도 타입을 제안하려면 호출자가 cursor를 넘겨야 함
-    // 현재 함수는 query만 받으므로 빈 쿼리 시 타입 제안을 위해선 별도 함수가 필요하나, 간단히 빈 쿼리 때도 타입을 포함하되 상위에서 필터링하도록 함
-    // 여기서는 빈 쿼리 시에도 타입/클래스를 포함하지 않고, 상위 호출에서 type position일 때 별도 처리하도록 둠
     return [];
   }
 
@@ -662,7 +700,7 @@ function getUnStatementExpression(line: string): string {
   return line.trim().replace(/^return\s+/, "");
 }
 
-export function getUnSimpleExpressionType(expression: string, symbols: Readonly<Record<string, string>>, declaredReturnTypes: Readonly<Record<string, string>>, nativeFunctions: readonly UnNativeFunctionMetadata[]): string | undefined {
+function getUnSimpleExpressionType(expression: string, symbols: Readonly<Record<string, string>>, declaredReturnTypes: Readonly<Record<string, string>>, nativeFunctions: readonly UnNativeFunctionMetadata[]): string | undefined {
   if (/^["']/.test(expression)) return "str";
   if (/^-?\d+\.\d+\b/.test(expression)) return "float";
   if (/^-?\d+\b/.test(expression)) return "int";
@@ -693,7 +731,7 @@ export function getUnSimpleExpressionType(expression: string, symbols: Readonly<
   return nativeFunctions.find((entry) => !entry.module.startsWith("type:") && entry.name === functionCall)?.returnType ?? declaredReturnTypes[functionCall];
 }
 
-export function getUnExpressionType(expression: string, symbols: Readonly<Record<string, string>>, declaredReturnTypes: Readonly<Record<string, string>>, nativeFunctions: readonly UnNativeFunctionMetadata[]): string | undefined {
+function getUnExpressionType(expression: string, symbols: Readonly<Record<string, string>>, declaredReturnTypes: Readonly<Record<string, string>>, nativeFunctions: readonly UnNativeFunctionMetadata[]): string | undefined {
   const segments = splitUnTopLevelChain(unwrapUnOuterGrouping(expression));
   let currentType = getUnSimpleExpressionType(segments[0] ?? "", symbols, declaredReturnTypes, nativeFunctions);
 
@@ -706,7 +744,7 @@ export function getUnExpressionType(expression: string, symbols: Readonly<Record
   return currentType;
 }
 
-export function getUnInferredSymbolTypes(source: string, nativeFunctions: readonly UnNativeFunctionMetadata[]): Record<string, string> {
+function getUnInferredSymbolTypes(source: string, nativeFunctions: readonly UnNativeFunctionMetadata[]): Record<string, string> {
   const symbols: Record<string, string> = {};
   const declaredReturnTypes = extractUnFunctionReturnTypes(source);
   const classNames = extractUnClassNames(source)
@@ -730,6 +768,8 @@ export function getUnInferredSymbolTypes(source: string, nativeFunctions: readon
 }
 
 export function getUnObjectMethodCandidates(source: string, cursor: number, nativeFunctions: readonly UnNativeFunctionMetadata[] = [], limit = 8): UnAutocompleteCandidate[] | null {
+  if (isUnInsideString(source, cursor)) return null;
+
   const range = getUnAutocompleteRange(source, cursor);
   const precedingSource = source.slice(0, range.start);
   const lineStart = precedingSource.lastIndexOf("\n") + 1;
@@ -795,197 +835,68 @@ export function getUnObjectMethodCandidates(source: string, cursor: number, nati
   return [];
 }
 
-function getUnNativeCandidate(candidate: UnAutocompleteCandidate, nativeFunctions: readonly UnNativeFunctionMetadata[]) {
-  if (candidate.kind === "argument") return undefined;
-  const memberModule = candidate.detail.match(/^native\s+(.+)\s+(?:function|method|property)$/)?.[1] ?? null;
-  return nativeFunctions.find((entry) => entry.name === candidate.label && (memberModule ? entry.module === memberModule : !entry.module.startsWith("type:")));
-}
-
-export function getUnAutocompletePreview(source: string, candidate: UnAutocompleteCandidate, nativeFunctions: readonly UnNativeFunctionMetadata[] = []): { description: string; example: string; returnType?: string } {
-  if (candidate.kind === "argument") {
-    const functionName = candidate.detail.replace(/^argument of\s+/, "");
-    const typeHint = getUnAutocompleteTypeHint(source, candidate, nativeFunctions) ?? "any";
-    return { description: `Parameter for ${functionName}. Expected type: ${typeHint}.`, example: `${functionName}(${candidate.label})` };
-  }
-  if (candidate.detail === "builtin type") {
-    const info = BUILTIN_TYPE_INFO.get(candidate.label);
-    if (info?.description || info?.example) return { description: info.description || `Builtin type ${candidate.label}.`, example: info.example || `x: ${candidate.label}` };
-    return { description: `Builtin type ${candidate.label}.`, example: `x: ${candidate.label}` };
-  }
-  if (candidate.detail === "class") return { description: `Class ${candidate.label} defined in current source.`, example: `${candidate.label}()` };
-  const nativeFunction = getUnNativeCandidate(candidate, nativeFunctions);
-  if (nativeFunction) return { description: nativeFunction.description, example: nativeFunction.example, returnType: nativeFunction.returnType };
-
-  if (candidate.kind === "method" && candidate.detail.startsWith("method of ")) {
-    const className = candidate.detail.replace("method of ", "")
-    return { description: `Method of class ${className}. Defined in current source.`, example: `${candidate.label}()` }
-  }
-
-  const keywordPreview = KEYWORD_PREVIEWS[candidate.label];
-  if (keywordPreview) return keywordPreview;
-
-  if (candidate.kind === "function") {
-    const signature = extractUnFunctionSignatures(source)[candidate.label];
-    const parameters = signature?.parameters ?? [];
-    const returnType = signature?.returnType;
-    return {
-      description: returnType && returnType !== "any" ? `Function available in the current source. Declared return type: ${returnType}.` : "Function available in the current source.",
-      example: `${candidate.label}(${parameters.join(", ")})`,
-      ...(returnType && returnType !== "any" ? { returnType } : {}),
-    };
-  }
-
-  if (candidate.detail === "builtin type") {
-    const info2 = BUILTIN_TYPE_INFO.get(candidate.label);
-    if (info2?.description || info2?.example) return { description: info2.description || `Builtin type ${candidate.label}.`, example: info2.example || `x: ${candidate.label}` };
-    return { description: `Builtin type ${candidate.label}.`, example: `x: ${candidate.label}` };
-  }
-  if (candidate.detail === "class") return { description: `Class ${candidate.label} defined in current source.`, example: `${candidate.label}()` };
-  if (candidate.kind === "variable") return { description: "Variable declared in the current source.", example: `write(${candidate.label})` };
-  return { description: `UN keyword: ${candidate.label}.`, example: `${candidate.label} …` };
-}
-
 export function applyUnAutocompleteCandidate(source: string, range: UnAutocompleteRange, candidate: UnAutocompleteCandidate): { source: string; cursor: number } {
   const nextSource = `${source.slice(0, range.start)}${candidate.label}${source.slice(range.end)}`;
   return { source: nextSource, cursor: range.start + candidate.label.length };
-}
-
-export type UnEditorTextEdit = {
-  source: string;
-  selectionStart: number;
-  selectionEnd: number;
-};
-
-const PAIR_CLOSERS: Record<string, string> = { "(": ")", "[": "]", "{": "}", "\"": "\"", "'": "'" };
-const CLOSING_CHARACTERS = new Set(Object.values(PAIR_CLOSERS));
-
-export function applyUnPairedCharacterEdit(source: string, selectionStart: number, selectionEnd: number, key: string): UnEditorTextEdit | null {
-  const start = Math.max(0, Math.min(selectionStart, source.length));
-  const end = Math.max(start, Math.min(selectionEnd, source.length));
-  const closingCharacter = PAIR_CLOSERS[key];
-
-  if (CLOSING_CHARACTERS.has(key) && start === end && source[start] === key) {
-    return { source, selectionStart: start + 1, selectionEnd: start + 1 };
-  }
-
-  if (closingCharacter) {
-    const selectedText = source.slice(start, end);
-    const nextSource = `${source.slice(0, start)}${key}${selectedText}${closingCharacter}${source.slice(end)}`;
-    const cursor = start + 1 + selectedText.length;
-    return { source: nextSource, selectionStart: cursor, selectionEnd: cursor };
-  }
-
-  if (key === "Backspace" && start === end && start > 0 && PAIR_CLOSERS[source[start - 1] ?? ""] === source[start]) {
-    const nextSource = `${source.slice(0, start - 1)}${source.slice(start + 1)}`;
-    return { source: nextSource, selectionStart: start - 1, selectionEnd: start - 1 };
-  }
-
-  return null;
-}
-
-export type UnSyntaxDiagnostic = {
-  start: number;
-  end: number;
-  line: number;
-  column: number;
-};
-
-function createUnSyntaxDiagnostic(source: string, start: number, end = start + 1): UnSyntaxDiagnostic | null {
-  if (source.length === 0) return null;
-  const boundedStart = Math.max(0, Math.min(start, source.length - 1));
-  const boundedEnd = Math.max(boundedStart + 1, Math.min(end, source.length));
-  const beforeStart = source.slice(0, boundedStart);
-  const line = beforeStart.split("\n").length;
-  const column = boundedStart - (beforeStart.lastIndexOf("\n") + 1) + 1;
-
-  return { start: boundedStart, end: boundedEnd, line, column };
-}
-
-export function findUnInlineSyntaxDiagnostic(source: string): UnSyntaxDiagnostic | null {
-  const openingPairs: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
-  const closingPairs: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
-  const stack: Array<{ character: string; index: number }> = [];
-  let quote: "\"" | "'" | null = null;
-  let quoteStart = -1;
-
-  for (let index = 0; index < source.length; index++) {
-    const character = source[index] ?? "";
-
-    if (quote) {
-      if (character === "\\") {
-        index++;
-        continue;
-      }
-      if (character === quote) quote = null;
-      continue;
-    }
-
-    if (character === "#") {
-      const nextLine = source.indexOf("\n", index);
-      index = nextLine === -1 ? source.length : nextLine;
-      continue;
-    }
-
-    if (character === "\"" || character === "'") {
-      quote = character;
-      quoteStart = index;
-      continue;
-    }
-
-    if (openingPairs[character]) {
-      stack.push({ character, index });
-      continue;
-    }
-
-    if (closingPairs[character]) {
-      const opener = stack.at(-1);
-      if (!opener || opener.character !== closingPairs[character]) return createUnSyntaxDiagnostic(source, index);
-      stack.pop();
-    }
-  }
-
-  if (quote) return createUnSyntaxDiagnostic(source, quoteStart);
-  if (stack.length > 0) return createUnSyntaxDiagnostic(source, stack.at(-1)?.index ?? 0);
-
-  const incompleteAssignment = /(?:^|\n)\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:=|\+=|-=|\*=|\/=|%=)\s*$/m.exec(source);
-  if (incompleteAssignment) {
-    const equalsOffset = incompleteAssignment[0].lastIndexOf("=");
-    const assignmentStart = incompleteAssignment.index + Math.max(0, equalsOffset);
-    return createUnSyntaxDiagnostic(source, assignmentStart);
-  }
-
-  return null;
-}
-
-export function parseUnSyntaxDiagnostic(source: string, message: string): UnSyntaxDiagnostic | null {
-  const position = message.match(/<[^>]+>,\s*line\s*\[(\d+)\],\s*column\s*\[(\d+)\]/i);
-  if (!position || source.length === 0) return null;
-
-  const line = Number(position[1]);
-  const column = Number(position[2]);
-  if (!Number.isInteger(line) || !Number.isInteger(column) || line < 1 || column < 1) return null;
-
-  const lines = source.split("\n");
-  if (line > lines.length) return null;
-
-  const lineStart = lines.slice(0, line - 1).reduce((offset, value) => offset + value.length + 1, 0);
-  const requestedStart = lineStart + column - 1;
-  let start = Math.max(0, Math.min(requestedStart, source.length - 1));
-  if (/\s/.test(source[start] ?? "")) {
-    const visibleLineStart = source.lastIndexOf("\n", start - 1) + 1;
-    while (start > visibleLineStart && /\s/.test(source[start] ?? "")) start--;
-  }
-  const caretLength = message.match(/^\s*(\^+)\s*$/m)?.[1]?.length ?? 1;
-  const end = Math.max(start + 1, Math.min(source.length, start + caretLength));
-
-  return { start, end, line, column };
 }
 
 function escapeHtml(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
-export function tokenizeUnSource(source: string): HighlightToken[] {
+type UnAccessorLineInfo = { header: boolean; fieldValue: boolean }
+
+// 클래스 본문의 property accessor(get/set) 범위를 라인 단위로 계산 —
+// field/value는 accessor 안에서만 보이는 식별자다
+function getUnAccessorLines(source: string): UnAccessorLineInfo[] {
+  const infos: UnAccessorLineInfo[] = []
+  let classIndent = -1
+  let accessorIndent = -1
+
+  for (const line of source.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '') {
+      infos.push({ header: false, fieldValue: accessorIndent >= 0 })
+      continue
+    }
+
+    const indent = line.search(/\S/)
+    let info: UnAccessorLineInfo = { header: false, fieldValue: false }
+
+    if (/^\s*class\s+[A-Za-z_]/.test(line)) {
+      classIndent = indent
+      accessorIndent = -1
+      infos.push(info)
+      continue
+    }
+
+    if (classIndent >= 0 && indent <= classIndent) {
+      classIndent = -1
+      accessorIndent = -1
+    }
+    if (accessorIndent >= 0 && indent <= accessorIndent) {
+      accessorIndent = -1
+    }
+
+    if (accessorIndent >= 0) {
+      info = { header: false, fieldValue: true }
+    } else if (classIndent >= 0) {
+      const headerMatch = line.match(/^\s*(get|set)\s+[A-Za-z_][A-Za-z0-9_]*([\s\S]*)$/)
+      if (headerMatch) {
+        const rest = headerMatch[2] ?? ''
+        const inlineBody = /^\s*(?:->|=)/.test(rest)
+        info = { header: true, fieldValue: inlineBody }
+        if (!inlineBody) accessorIndent = indent
+      }
+    }
+
+    infos.push(info)
+  }
+
+  return infos
+}
+
+function tokenizeUnSource(source: string): HighlightToken[] {
   const tokens: HighlightToken[] = [];
   const push = (type: HighlightTokenType, value: string) => tokens.push({ type, value });
   // 사용자 정의 클래스: `class Name`으로 선언된 이름만 타입으로 하이라이팅
@@ -1001,17 +912,18 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
   const userVariables = new Set(userSymbols.filter(s => s.kind === "variable").map(s => s.label))
   // use로 가져온 모듈(alias 포함) — io, mio 등
   const usedMap = getUsedNativeModuleMap(source)
-  const aliasedBases = new Set<string>()
-  for (const [k, v] of usedMap.entries()) if (k !== v) aliasedBases.add(v)
   let afterUseOrAs = false
   let afterAt = false
   let braceDepth = 0
-  const getCurrentLine = (pos: number) => {
-    const lastNl = source.lastIndexOf("\n", pos - 1)
-    const lineStart = lastNl + 1
-    const nextNl = source.indexOf("\n", pos)
-    const lineEnd = nextNl === -1 ? source.length : nextNl
-    return source.slice(lineStart, lineEnd).trim()
+  // property accessor(get/set) 라인 컨텍스트 — field/value 하이라이팅용
+  const accessorLines = getUnAccessorLines(source)
+  let accessorLineIndex = 0
+  let accessorLineIndexPos = 0
+  const advanceAccessorLineIndex = (pos: number) => {
+    while (accessorLineIndexPos < pos) {
+      if (source[accessorLineIndexPos] === '\n') accessorLineIndex++;
+      accessorLineIndexPos++;
+    }
   }
   let index = 0;
 
@@ -1124,8 +1036,16 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
       const match = source.slice(index).match(/^[A-Za-z_][A-Za-z0-9_]*/);
       const value = match?.[0] ?? current;
       const nextNonWhitespace = source.slice(index + value.length).match(/^\s*(.)/)?.[1];
+      advanceAccessorLineIndex(index);
+      const accessor = accessorLines[accessorLineIndex];
       let type: HighlightTokenType
-      if (UN_KEYWORDS.has(value)) {
+      if (accessor?.header && (value === "get" || value === "set")) {
+        type = "keyword"
+        afterUseOrAs = false
+      } else if (accessor?.fieldValue && (value === "field" || value === "value")) {
+        type = "keyword"
+        afterUseOrAs = false
+      } else if (UN_KEYWORDS.has(value)) {
         type = "keyword"
         afterUseOrAs = (value === "use" || value === "as")
       } else if (afterAt) {
@@ -1155,8 +1075,7 @@ export function tokenizeUnSource(source: string): HighlightToken[] {
   return tokens;
 }
 
-export function highlightUnSource(source: string, syntaxDiagnostic?: UnSyntaxDiagnostic | null): string {
-  let offset = 0;
+export function highlightUnSource(source: string): string {
   let depth = 0;
 
   return tokenizeUnSource(source)
@@ -1171,11 +1090,7 @@ export function highlightUnSource(source: string, syntaxDiagnostic?: UnSyntaxDia
           displayType = `bracket-${depth % 3}`;
         }
       }
-      const start = offset;
-      offset += value.length;
-      const token = displayType === "plain" ? escapeHtml(value) : `<span class="un-syntax-${displayType}">${escapeHtml(value)}</span>`;
-      const overlapsDiagnostic = syntaxDiagnostic && start < syntaxDiagnostic.end && offset > syntaxDiagnostic.start;
-      return overlapsDiagnostic ? `<span class="un-syntax-error">${token}</span>` : token;
+      return displayType === "plain" ? escapeHtml(value) : `<span class="un-syntax-${displayType}">${escapeHtml(value)}</span>`;
     })
     .join("");
 }

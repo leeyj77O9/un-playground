@@ -1,5 +1,3 @@
-@import "tailwindcss";
-
 /* ── Palette ─────────────────────────────────────────────────────────── */
 :root {
   --ivory: #f6f1e4;
@@ -15,85 +13,6 @@
   --terminal-green: #a9c9a1;
 
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-
-  /* Floating Command Bar */
-  --cmd-bg: rgba(251, 248, 239, 0.92);
-  --cmd-border: #ded4bf;
-  --cmd-btn-bg: transparent;
-  --cmd-btn-hover: rgba(180, 85, 45, 0.12);
-  --cmd-btn-active: rgba(180, 85, 45, 0.25);
-  --cmd-icon: #24211b;
-  --cmd-icon-hover: #b4552d;
-  --cmd-text: #24211b;
-  --cmd-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-}
-
-[data-theme="dark"] {
-  --ivory: #1a1714;
-  --paper: #24211c;
-  --paper-2: #2d2823;
-  --line: #3d352b;
-  --ink: #ece5d5;
-
-  --terminal: #0f0d0b;
-  --terminal-text: #ece5d5;
-  --terminal-dim: #918877;
-  --terminal-red: #f2a08d;
-  --terminal-green: #a9c9a1;
-
-  --cmd-bg: rgba(28, 25, 22, 0.92);
-  --cmd-border: #3d352b;
-  --cmd-btn-hover: rgba(255, 255, 255, 0.08);
-  --cmd-btn-active: rgba(255, 255, 255, 0.15);
-  --cmd-icon: #ece5d5;
-  --cmd-icon-hover: #e8dfca;
-  --cmd-text: #ece5d5;
-  --cmd-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-
-  body {
-    background: var(--ivory);
-    color: var(--ink);
-  }
-
-  .pane-editor {
-    background: var(--paper);
-  }
-
-  .code-gutter {
-    background: var(--paper);
-    border-right-color: var(--line);
-  }
-
-  .code-gutter pre {
-    color: #8a7f6c;
-  }
-
-  .code-highlight {
-    color: var(--ink);
-  }
-
-  .code-input {
-    caret-color: #e8dfca;
-  }
-
-  .un-syntax-keyword   { color: #e8a25c; }
-  .un-syntax-function  { color: #7fb3d5; }
-  .un-syntax-variable  { color: #9bbbd9; }
-  .un-syntax-string    { color: #a9c9a1; }
-  .un-syntax-number    { color: #e8a25c; }
-  .un-syntax-type      { color: #8dd0b8; }
-  .un-syntax-comment   { color: #8a7f6c; font-style: italic; }
-  .un-syntax-module    { color: #8dd0b8; font-weight: 600; }
-  .un-syntax-bracket   { color: #b8a890; }
-  .un-syntax-bracket-0 { color: #e8a25c; }
-  .un-syntax-bracket-1 { color: #c39bd3; }
-  .un-syntax-bracket-2 { color: #7fb3d5; }
-  .un-syntax-decorator { color: #d38cd9; }
-
-  .un-syntax-error {
-    background: rgba(242, 160, 141, 0.13);
-    text-decoration-color: #f2a08d;
-  }
 }
 
 /* ── Base ────────────────────────────────────────────────────────────── */
@@ -257,18 +176,10 @@ body {
 .un-syntax-type      { color: #2e7d6a; }
 .un-syntax-comment   { color: #9a917c; font-style: italic; }
 .un-syntax-module    { color: #2e7d6a; font-weight: 600; }
-.un-syntax-bracket   { color: #7a6a4f; }
 .un-syntax-bracket-0 { color: #b4552d; }
 .un-syntax-bracket-1 { color: #7a5aa0; }
 .un-syntax-bracket-2 { color: #2c6e8a; }
 .un-syntax-decorator { color: #a0508a; }
-
-.un-syntax-error {
-  background: rgba(180, 85, 45, 0.13);
-  text-decoration: underline wavy #b4552d;
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 3px;
-}
 
 /* ── Terminal ────────────────────────────────────────────────────────── */
 .pane-terminal {
@@ -329,10 +240,6 @@ body {
   border-top-color: var(--terminal-green);
   border-radius: 999px;
   animation: spin 0.7s linear infinite;
-}
-
-.terminal-stdin-line {
-  color: var(--terminal-dim);
 }
 
 .terminal-transcript-input {
@@ -421,80 +328,120 @@ body {
   }
 }
 
-/* ── Floating Command Bar (Top-slide style) ────────────────────── */
-.command-bar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 0;
-  z-index: 50;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* ── Autocomplete Dropdown ────────────────────────────────────────── */
+.autocomplete-dropdown {
+  position: absolute;
+  z-index: 30;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  min-width: 240px;
+  max-width: 360px;
+  max-height: 224px;
+  overflow-y: auto;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(36, 33, 27, 0.16);
   font-family: var(--font-mono);
   font-size: 12px;
-  transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  overflow: hidden;
 }
 
-.command-bar.collapsed {
-  height: 36px;
-  background: var(--cmd-bg);
-  border-bottom: 1px solid var(--line);
-  box-shadow: none;
-  cursor: pointer;
-}
-
-.command-bar.expanded .command-bar-collapsed {
-  display: none;
-}
-
-.command-bar.expanded .command-bar-expanded {
+.autocomplete-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 16px;
-  min-height: 36px;
-  background: var(--cmd-bg);
-  border-bottom: 1px solid var(--cmd-border);
-  box-shadow: none;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--ink);
+  white-space: nowrap;
+  user-select: none;
 }
 
-.command-bar.is-exited .command-bar-expanded {
-  display: none;
+.autocomplete-item.selected,
+.autocomplete-item:hover {
+  background: var(--paper-2);
 }
 
-.command-bar.collapsed .command-bar-expanded {
-  display: none;
+.autocomplete-item .ac-kind {
+  flex: 0 0 30px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #b4552d;
+  letter-spacing: 0.04em;
 }
 
-@keyframes cmd-expand {
-  from {
-    opacity: 0;
-    height: 40px;
-  }
-  to {
-    opacity: 1;
-    height: auto;
-  }
+.autocomplete-item .ac-label {
+  font-weight: 600;
 }
 
-@keyframes cmd-collapse {
-  from {
-    opacity: 1;
-    height: auto;
-  }
-  to {
-    opacity: 0;
-    height: 40px;
-  }
+/* ── Signature Help ───────────────────────────────────────────────── */
+.signature-help {
+  position: absolute;
+  z-index: 31;
+  max-width: calc(100% - 24px);
+  padding: 8px 10px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(36, 33, 27, 0.16);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  pointer-events: none;
 }
 
-.command-bar.expanded .command-bar-expanded {
-  animation: cmd-expand 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+.signature-help-signature {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.command-bar.is-exited .command-bar-expanded.is-exiting {
-  animation: cmd-collapse 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+.signature-help-name {
+  font-weight: 700;
+  color: #2c6e8a;
+}
+
+.signature-help-parens {
+  color: #7a6a4f;
+}
+
+.signature-help-param {
+  padding: 0 3px;
+  border-radius: 3px;
+  color: #3b5b87;
+}
+
+.signature-help-param.active {
+  font-weight: 700;
+  color: #b4552d;
+  background: rgba(180, 85, 45, 0.14);
+}
+
+.signature-help-sep {
+  color: #7a6a4f;
+}
+
+.signature-help-return {
+  color: #2e7d6a;
+  font-weight: 600;
+}
+
+.signature-help-description {
+  margin-top: 4px;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #5c554a;
+}
+
+.signature-help-example {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #8a7f6c;
+  white-space: pre-wrap;
 }

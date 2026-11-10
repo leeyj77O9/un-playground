@@ -17,8 +17,17 @@ import {
   PLAYGROUND_STORAGE_KEYS,
   presentExecution,
   restoreSavedSource,
+  applyUnAutocompleteCandidate,
+  getUnObjectMethodCandidates,
+  getUnAutocompleteCandidates,
+  getUnAutocompleteRange,
+  isUnInsideString,
+  getUnSignatureHelp,
   type ConsolePresentation,
   type ExecutionSnapshot,
+  type UnAutocompleteCandidate,
+  type UnNativeFunctionMetadata,
+  type UnSignatureHelp,
 } from './lib/playground'
 import { useWasm } from './hooks/useWasm'
 
@@ -26,21 +35,131 @@ type Phase = 'idle' | 'running' | 'waiting' | 'done'
 
 type InputInsertion = { at: number; value: string; kind: 'input' | 'output' }
 
+const KIND_LABEL: Record<UnAutocompleteCandidate['kind'], string> = {
+  keyword: 'kw',
+  function: 'fn',
+  method: 'mt',
+  property: 'prop',
+  variable: 'var',
+  argument: 'arg',
+}
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
 /* ── Source Editor ──────────────────────────────────────────────────── */
 function SourceEditor({
   value,
   onChange,
   onRun,
+  nativeFunctions,
 }: {
   value: string
   onChange: (next: string) => void
   onRun: () => void
+  nativeFunctions: UnNativeFunctionMetadata[]
 }) {
   const highlightRef = useRef<HTMLElement>(null)
   const gutterRef = useRef<HTMLPreElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const [acVisible, setAcVisible] = useState(false)
+  const [acCandidates, setAcCandidates] = useState<UnAutocompleteCandidate[]>([])
+  const [acSelected, setAcSelected] = useState(0)
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
+  const [sigHelp, setSigHelp] = useState<UnSignatureHelp | null>(null)
+  const [sigPos, setSigPos] = useState({ top: 0, left: 0 })
 
   const highlighted = useMemo(() => highlightUnSource(value), [value])
   const lineNumbers = useMemo(() => getEditorLineNumbers(value), [value])
+
+  // 케어 위치(.code-surface 기준) — 팝업이 현재 라인 바로 아래에 뜨도록
+  const measureCaret = (el: HTMLTextAreaElement, cursor: number, text: string) => {
+    const before = text.slice(0, cursor)
+    const lineIndex = before.split('\n').length - 1
+    const lineStart = before.lastIndexOf('\n') + 1
+    const col = cursor - lineStart
+    const cs = window.getComputedStyle(el)
+    const lineHeight = Number.parseFloat(cs.lineHeight) || 22.75
+    const fontSize = Number.parseFloat(cs.fontSize) || 13
+    const charWidth = fontSize * 0.6
+    const padLeft = Number.parseFloat(cs.paddingLeft) || 0
+    const padTop = Number.parseFloat(cs.paddingTop) || 0
+    return {
+      top: padTop + (lineIndex + 1) * lineHeight - el.scrollTop + 4,
+      left: padLeft + col * charWidth - el.scrollLeft,
+    }
+  }
+
+  // 자동완성 드롭다운(위) → 시그니처 도움말(아래) 순으로 배치
+  const positionPopups = (el: HTMLTextAreaElement, cursor: number, text: string, acCount: number) => {
+    const caret = measureCaret(el, cursor, text)
+    setDropPos({ top: caret.top, left: caret.left })
+    const acHeight = acCount > 0 ? 8 + 26 * acCount + 4 : 0
+    setSigPos({ top: caret.top + acHeight, left: caret.left })
+  }
+
+  const updateSignatureHelp = (el: HTMLTextAreaElement | null, text: string, acCount = 0) => {
+    if (!el) return
+    const cursor = el.selectionStart ?? text.length
+    setSigHelp(getUnSignatureHelp(text, cursor, nativeFunctions))
+    positionPopups(el, cursor, text, acCount)
+  }
+
+  const refreshAutocomplete = (text: string, cursor: number): number => {
+    if (isUnInsideString(text, cursor)) {
+      setAcVisible(false)
+      return 0
+    }
+    // io. / math. 같은 dot 컨텍스트가 우선
+    const dotCandidates = getUnObjectMethodCandidates(text, cursor, nativeFunctions)
+    const range = getUnAutocompleteRange(text, cursor)
+    const next = dotCandidates !== null
+      ? dotCandidates
+      : range.query.length > 0
+        ? getUnAutocompleteCandidates(text, range.query, nativeFunctions)
+        : []
+    if (next.length === 0) {
+      setAcVisible(false)
+      return 0
+    }
+    setAcCandidates(next)
+    setAcSelected(0)
+    setAcVisible(true)
+    return next.length
+  }
+
+  const applyCandidate = (candidate: UnAutocompleteCandidate) => {
+    const el = textareaRef.current
+    const cursor = el?.selectionStart ?? value.length
+    const range = getUnAutocompleteRange(value, cursor)
+    const applied = applyUnAutocompleteCandidate(value, range, candidate)
+    onChange(applied.source)
+    setAcVisible(false)
+    requestAnimationFrame(() => {
+      const target = textareaRef.current
+      if (target) {
+        target.selectionStart = target.selectionEnd = applied.cursor
+        target.focus()
+        updateSignatureHelp(target, applied.source, 0)
+      }
+    })
+  }
+
+  const handleTextChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = event.target.value
+    onChange(text)
+    syncScroll(event.target)
+    const cursor = event.target.selectionStart ?? text.length
+    const acCount = refreshAutocomplete(text, cursor)
+    setSigHelp(getUnSignatureHelp(text, cursor, nativeFunctions))
+    positionPopups(event.target, cursor, text, acCount)
+  }
 
   const syncScroll = (el: HTMLTextAreaElement) => {
     if (gutterRef.current) {
@@ -52,10 +171,51 @@ function SourceEditor({
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return
+
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault()
+      setAcVisible(false)
+      setSigHelp(null)
       onRun()
       return
+    }
+
+    // 자동완성이 열려 있을 때 키 처리
+    if (acVisible && acCandidates.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setAcSelected((i) => (i + 1) % acCandidates.length)
+        return
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setAcSelected((i) => (i - 1 + acCandidates.length) % acCandidates.length)
+        return
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        const selected = acCandidates[acSelected]
+        if (selected) applyCandidate(selected)
+        return
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setAcVisible(false)
+        setSigHelp(null)
+        return
+      }
+    }
+
+    if (event.key === 'Escape') {
+      setAcVisible(false)
+      setSigHelp(null)
+      return
+    }
+
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      setAcVisible(false)
+      requestAnimationFrame(() => updateSignatureHelp(textareaRef.current, value, 0))
     }
 
     if (event.key === 'Tab') {
@@ -80,20 +240,85 @@ function SourceEditor({
           <code ref={highlightRef} dangerouslySetInnerHTML={{ __html: highlighted }} />
         </pre>
         <textarea
+          ref={textareaRef}
           className="code-input"
           aria-label="Un source code"
           value={value}
-          onChange={(event) => {
-            onChange(event.target.value)
-            syncScroll(event.target)
+          onChange={handleTextChange}
+          onScroll={(event) => {
+            syncScroll(event.currentTarget)
+            if (acVisible || sigHelp) {
+              positionPopups(
+                event.currentTarget,
+                event.currentTarget.selectionStart ?? 0,
+                value,
+                acVisible ? acCandidates.length : 0,
+              )
+            }
           }}
-          onScroll={(event) => syncScroll(event.currentTarget)}
+          onBlur={() => {
+            setAcVisible(false)
+            setSigHelp(null)
+          }}
           onKeyDown={handleKeyDown}
           spellCheck={false}
           autoCapitalize="off"
           autoCorrect="off"
           wrap="off"
         />
+        {sigHelp && (
+          <div
+            className="signature-help"
+            role="tooltip"
+            style={{ top: sigPos.top, left: sigPos.left }}
+          >
+            <div className="signature-help-signature">
+              <span className="signature-help-name">{sigHelp.displayName}</span>
+              <span className="signature-help-parens">(</span>
+              {sigHelp.parameters.map((parameter, index) => (
+                <span key={`${parameter.name}-${index}`}>
+                  <span className={`signature-help-param${index === sigHelp.activeIndex ? ' active' : ''}`}>
+                    {parameter.positional ? '...' : ''}{parameter.name}{parameter.optional ? '?' : ''}: {parameter.expectedType}
+                  </span>
+                  {index < sigHelp.parameters.length - 1 && <span className="signature-help-sep">, </span>}
+                </span>
+              ))}
+              <span className="signature-help-parens">) → </span>
+              <span className="signature-help-return">{sigHelp.returnType}</span>
+            </div>
+            {sigHelp.description && (
+              <div className="signature-help-description">{sigHelp.description}</div>
+            )}
+            {sigHelp.example && (
+              <code className="signature-help-example">{sigHelp.example}</code>
+            )}
+          </div>
+        )}
+        {acVisible && acCandidates.length > 0 && (
+          <ul
+            className="autocomplete-dropdown"
+            role="listbox"
+            aria-label="Autocomplete suggestions"
+            style={{ top: dropPos.top, left: dropPos.left }}
+          >
+            {acCandidates.map((candidate, index) => (
+              <li
+                key={`${candidate.label}-${index}`}
+                role="option"
+                aria-selected={index === acSelected}
+                className={`autocomplete-item${index === acSelected ? ' selected' : ''}`}
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  applyCandidate(candidate)
+                }}
+                onMouseEnter={() => setAcSelected(index)}
+              >
+                <span className="ac-kind">{KIND_LABEL[candidate.kind]}</span>
+                <span className="ac-label">{candidate.label}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   )
@@ -275,7 +500,7 @@ export default function Home() {
   const historyRef = useRef<string[]>([source])
   const historyIndexRef = useRef(0)
 
-  const { wasmReady } = useWasm()
+  const { nativeFunctions } = useWasm()
 
   const changePhase = (next: Phase) => {
     phaseRef.current = next
@@ -368,21 +593,21 @@ export default function Home() {
 
   const presentation = useMemo(() => (result ? presentExecution(result) : null), [result])
 
+  // 입력한 줄은 dimmed span으로, 나머지 출력은 이스케이프한 뒤 그대로 이어 붙인다
   const renderTranscript = (stdout: string) => {
     const insertions = insertionsRef.current
-    if (insertions.length === 0) return stdout
+    if (insertions.length === 0) return escapeHtml(stdout)
 
     const ordered = [...insertions].sort((a, b) => a.at - b.at)
     let out = ''
     let cursor = 0
     for (const insertion of ordered) {
       if (insertion.at < cursor || insertion.at > stdout.length) continue
-      out += stdout.slice(cursor, insertion.at)
-      out += insertion.value
-      out += '\n'
+      out += escapeHtml(stdout.slice(cursor, insertion.at))
+      out += `<span class="terminal-transcript-input">${escapeHtml(insertion.value)}</span>\n`
       cursor = insertion.at
     }
-    out += stdout.slice(cursor)
+    out += escapeHtml(stdout.slice(cursor))
     return out
   }
 
@@ -403,13 +628,13 @@ export default function Home() {
       return
     }
 
-    if (sourceValue.length > MAX_SOURCE) {
+    if (sourceValue.length > MAX_PLAYGROUND_SOURCE_CHARS) {
       setResult({
         status: 'rejected',
         stdout: '',
         stderr: '',
         durationMs: 0,
-        error: { kind: 'validation', message: `Code must be ${MAX_SOURCE.toLocaleString()} characters or fewer.` },
+        error: { kind: 'validation', message: `Code must be ${MAX_PLAYGROUND_SOURCE_CHARS.toLocaleString()} characters or fewer.` },
       })
       changePhase('done')
       return
@@ -440,6 +665,12 @@ export default function Home() {
     }
 
     try {
+      try {
+        await invoke('SetAllowEof', allowEof ? 'true' : 'false')
+      } catch {
+        /* eof flag is best-effort */
+      }
+
       try {
         await invoke('SetStdin', inputs.join('\n'))
       } catch {
@@ -492,7 +723,7 @@ export default function Home() {
       const message = String(error?.message ?? error)
       setResult({
         status: 'error',
-        stdout: transcript,
+        stdout: '',
         stderr: message,
         durationMs: Math.round(performance.now() - started),
         error: { kind: 'service', message },
@@ -576,7 +807,7 @@ export default function Home() {
         style={{ '--editor-width': `${leftPct}%` } as CSSProperties}
       >
         <section className="pane pane-editor">
-          <SourceEditor value={source} onChange={setSource} onRun={handleRunShortcut} />
+          <SourceEditor value={source} onChange={setSource} onRun={handleRunShortcut} nativeFunctions={nativeFunctions} />
         </section>
 
         <div
