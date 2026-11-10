@@ -1,17 +1,22 @@
 node_modules/
-dist/
 .vite/
 .opencode/
 .playwright-mcp/
-web/node_modules/
-web/dist/
+
+# build output
+dist/
 bin/
 obj/
-*.log
-dist/
 **/bin/
 **/obj/
 !web/public/_framework/
+
+# logs
+*.log
+
+# editors / OS
+.vs/
+.DS_Store
 
 # opencode / agent docs (로컬 전용, 깃 추적 제외)
 opencode.json
