@@ -5,6 +5,11 @@
 // input lines collected so far as `stdin`. when the script asks `read()` for a
 // line that is not in the buffer yet, the run aborts and the JSON result reports
 // `needsInput: true` — the caller appends the next line and runs again.
+//
+// The wasm has no OS clock, so it imports the host's time:
+//   env.unvm_monotonic_nanos() -> f64 nanoseconds (performance.now() * 1e6)
+//   env.unvm_unix_nanos()      -> f64 nanoseconds (Date.now() * 1e6)
+// Both must be provided; the module fails to instantiate without them.
 
 export type UnPlaygroundResult = {
   stdout: string
@@ -28,6 +33,14 @@ type PlaygroundAbi = {
   memory: WebAssembly.Memory
 }
 
+// the host clock the wasm imports (wasm32-unknown-unknown has no OS clock)
+const envImports = {
+  env: {
+    unvm_monotonic_nanos: () => performance.now() * 1e6,
+    unvm_unix_nanos: () => Date.now() * 1e6,
+  },
+}
+
 let instancePromise: Promise<PlaygroundAbi> | null = null
 
 async function instantiate(): Promise<PlaygroundAbi> {
@@ -36,11 +49,11 @@ async function instantiate(): Promise<PlaygroundAbi> {
 
   let instance: WebAssembly.Instance
   try {
-    const streaming = await WebAssembly.instantiateStreaming(response.clone(), {})
+    const streaming = await WebAssembly.instantiateStreaming(response.clone(), envImports)
     instance = streaming.instance
   } catch {
     // instantiateStreaming requires `application/wasm`; fall back to the bytes
-    instance = (await WebAssembly.instantiate(await response.arrayBuffer(), {})).instance
+    instance = (await WebAssembly.instantiate(await response.arrayBuffer(), envImports)).instance
   }
 
   const exports = instance.exports as unknown as PlaygroundAbi
