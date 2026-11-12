@@ -52,6 +52,15 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
 
+// 팝업 위치 계산용 텍스트 폭 측정 — 글자폭을 추정하지 않고 실제 렌더링 폭 사용
+let measureCtx: CanvasRenderingContext2D | null = null
+const measureTextWidth = (text: string, font: string) => {
+  if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d')
+  if (!measureCtx) return text.length * 8
+  measureCtx.font = font
+  return measureCtx.measureText(text).width
+}
+
 /* ── Source Editor ──────────────────────────────────────────────────── */
 function SourceEditor({
   value,
@@ -79,20 +88,19 @@ function SourceEditor({
   const lineNumbers = useMemo(() => getEditorLineNumbers(value), [value])
 
   // 케어 위치(.code-surface 기준) — 팝업이 현재 라인 바로 아래에 뜨도록
+  // 한글 등 글자폭이 다른 문자도 정확히 따라가도록 캔버스로 실제 폭을 측정
   const measureCaret = (el: HTMLTextAreaElement, cursor: number, text: string) => {
     const before = text.slice(0, cursor)
     const lineIndex = before.split('\n').length - 1
     const lineStart = before.lastIndexOf('\n') + 1
-    const col = cursor - lineStart
+    const lineText = before.slice(lineStart)
     const cs = window.getComputedStyle(el)
     const lineHeight = Number.parseFloat(cs.lineHeight) || 22.75
-    const fontSize = Number.parseFloat(cs.fontSize) || 13
-    const charWidth = fontSize * 0.6
     const padLeft = Number.parseFloat(cs.paddingLeft) || 0
     const padTop = Number.parseFloat(cs.paddingTop) || 0
     return {
       top: padTop + (lineIndex + 1) * lineHeight - el.scrollTop + 4,
-      left: padLeft + col * charWidth - el.scrollLeft,
+      left: padLeft + measureTextWidth(lineText, cs.font) - el.scrollLeft,
     }
   }
 
@@ -216,6 +224,12 @@ function SourceEditor({
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
       setAcVisible(false)
       requestAnimationFrame(() => updateSignatureHelp(textareaRef.current, value, 0))
+    }
+
+    // undo/redo — 팝업 계열 UI도 함께 닫기
+    if ((event.metaKey || event.ctrlKey) && (event.key.toLowerCase() === 'z' || event.key.toLowerCase() === 'y')) {
+      setAcVisible(false)
+      setSigHelp(null)
     }
 
     if (event.key === 'Tab') {
@@ -775,6 +789,7 @@ export default function Home() {
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented) return
+      if (event.isComposing) return
       if (!(event.metaKey || event.ctrlKey)) return
 
       if (event.key === 'Enter') {
