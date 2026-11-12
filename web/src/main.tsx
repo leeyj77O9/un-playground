@@ -30,6 +30,7 @@ import {
   type UnSignatureHelp,
 } from './lib/playground'
 import { useWasm } from './hooks/useWasm'
+import { runUnScript } from './lib/wasmClient'
 
 type Phase = 'idle' | 'running' | 'waiting' | 'done'
 
@@ -664,38 +665,13 @@ export default function Home() {
 
     changePhase('running')
     const started = performance.now()
-    const invoke = window.dotnetInvoke
-
-    if (typeof invoke !== 'function') {
-      setResult({
-        status: 'error',
-        stdout: '',
-        stderr: '',
-        durationMs: Math.round(performance.now() - started),
-        error: { kind: 'service', message: 'The WASM runtime is still loading. Try again in a moment.' },
-      })
-      changePhase('done')
-      return
-    }
 
     try {
-      try {
-        await invoke('SetAllowEof', allowEof ? 'true' : 'false')
-      } catch {
-        /* eof flag is best-effort */
-      }
-
-      try {
-        await invoke('SetStdin', inputs.join('\n'))
-      } catch {
-        /* stdin is optional */
-      }
-
-      const raw: any = await invoke('Run', sourceValue)
-      const stdout = String(raw?.stdout ?? raw?.Stdout ?? '')
-      const error = raw?.error ?? raw?.Error ?? null
-      const timedOut = raw?.timedOut ?? raw?.TimedOut ?? false
-      const needsInput = Boolean(raw?.needsInput ?? raw?.NeedsInput)
+      const raw = await runUnScript(sourceValue, inputs, allowEof)
+      const stdout = String(raw?.stdout ?? '')
+      const error = raw?.error ?? null
+      const timedOut = Boolean(raw?.timedOut)
+      const needsInput = Boolean(raw?.needsInput)
       const durationMs = Math.round(performance.now() - started)
 
       if (isContinuation && !stdout.startsWith(lastStdoutRef.current)) {

@@ -9,7 +9,7 @@ bin/
 obj/
 **/bin/
 **/obj/
-!web/public/_framework/
+!web/public/playground.wasm
 
 # logs
 *.log

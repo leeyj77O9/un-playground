@@ -1,7 +1,8 @@
 name: Update WASM
 
-# Rebuilds the Blazor WASM bundle from the latest `un` source and commits it
-# into web/public/_framework. Vercel then deploys the updated site.
+# Rebuilds the Rust playground WASM (un/rust/playground) from the latest `un`
+# source and commits it into web/public/playground.wasm. Vercel then deploys
+# the updated site.
 #
 # No secret is required: this runs on a schedule and on manual dispatch.
 # The `repository_dispatch` trigger is optional and lets the `un` repo request
@@ -120,41 +121,47 @@ jobs:
           path: un
           fetch-depth: 1
 
-      - name: Setup .NET 8
+      - name: Setup Rust toolchain
         if: steps.check.outputs.changed == 'true'
-        uses: actions/setup-dotnet@v4
+        uses: dtolnay/rust-toolchain@stable
         with:
-          dotnet-version: '8.0.x'
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo
+        if: steps.check.outputs.changed == 'true'
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            un/rust -> target
 
       - name: Test un
         if: steps.check.outputs.changed == 'true'
-        working-directory: un
-        run: dotnet run --project Un.csproj -c Release -- run test/test_suite.un
+        working-directory: un/rust
+        run: cargo test --workspace
 
-      - name: Install wasm-tools
+      - name: Build playground WASM
         if: steps.check.outputs.changed == 'true'
-        run: dotnet workload install wasm-tools
+        working-directory: un/rust
+        run: cargo build --release --target wasm32-unknown-unknown -p unvm-playground
 
-      - name: Build WASM
+      - name: Smoke test the WASM ABI
         if: steps.check.outputs.changed == 'true'
-        working-directory: un-playground
-        run: dotnet publish Un.Playground.Wasm/Un.Playground.Wasm.csproj -c Release --nologo
+        working-directory: un/rust
+        run: node playground/smoke.mjs
 
-      - name: Copy _framework
+      - name: Copy playground.wasm
         if: steps.check.outputs.changed == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          src="un-playground/Un.Playground.Wasm/bin/Release/net8.0/publish/wwwroot/_framework"
-          dest="un-playground/web/public/_framework"
-          if [[ ! -d "$src" ]]; then
-            echo "::error::WASM publish output not found: $src"
+          src="un/rust/target/wasm32-unknown-unknown/release/unvm_playground.wasm"
+          dest="un-playground/web/public/playground.wasm"
+          if [[ ! -f "$src" ]]; then
+            echo "::error::WASM build output not found: $src"
             exit 1
           fi
-          rm -rf "$dest"
-          mkdir -p "$dest"
-          cp -R "$src/." "$dest/"
-          find "$dest" -name '*.br' -delete
+          mkdir -p "$(dirname "$dest")"
+          cp "$src" "$dest"
 
       - name: Commit and push
         if: steps.check.outputs.changed == 'true'
@@ -168,7 +175,7 @@ jobs:
           echo "$UN_SHA" > .wasm-source-sha
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A web/public/_framework .wasm-source-sha
+          git add -A web/public/playground.wasm .wasm-source-sha
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
