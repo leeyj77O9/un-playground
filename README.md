@@ -19,12 +19,12 @@ Rust로 포팅된 `unvm` 런타임(`un/rust`)의 플레이그라운드 크레이
   빈 문자열을 반환합니다.
 - 에디터 자동완성/시그니처 도움말은 **정적 카탈로그**
   (`web/src/lib/nativeCatalog.ts`)를 사용합니다. Rust VM은 리플렉션
-  메타데이터를 갖지 않으므로, `un` 리포지토리의
-  `docs/rust-migration/NATIVE_INVENTORY.md`에서 생성한 데이터입니다.
-  카탈로그를 갱신하려면 `npm run generate:catalog --prefix web`을 실행하세요
-  (un 리포지토리가 `../un`에 있는 기본 경로를 그대로 쓰거나,
-  `node web/scripts/gen-native-catalog.mjs <NATIVE_INVENTORY.md> <outPath>`로
-  경로를 지정할 수 있습니다).
+  메타데이터를 갖지 않으므로, 카탈로그는 한 번 생성되어 이 저장소에
+  커밋된 데이터입니다. (생성 원본이던 인벤토리 문서는 `un` 리포지토리의
+  마이그레이션 문서와 함께 제거되었습니다.) 카탈로그를 직접 고치려면
+  `web/src/lib/nativeCatalog.ts`를 수정하세요. 인벤토리 파일이 있다면
+  `node web/scripts/gen-native-catalog.mjs <inventory.md> <outPath>`로
+  다시 생성할 수 있습니다.
 
 ## WASM 자동 갱신
 

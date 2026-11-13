@@ -1,22 +1,30 @@
-// Generates web/src/lib/nativeCatalog.ts from the Un native-inventory document.
+// Generates web/src/lib/nativeCatalog.ts from a Un native-inventory document.
 //
-// The inventory is the record of the reference's native surface: every
+// The inventory was the record of the reference's native surface: every
 // [Native]/[BuiltinModule]/[BuiltinType]/[NativeType] method with its
 // description and example. The Rust playground has no reflection metadata, so
 // the playground ships this catalog as static data for editor autocomplete.
+// The original inventory document was removed with the migration-era docs;
+// the catalog is committed to this repo, so regeneration is optional and
+// manual. Pass an explicit inventory file to regenerate.
 //
 // Usage (from the un-playground repo root):
-//   node web/scripts/gen-native-catalog.mjs [path/to/NATIVE_INVENTORY.md] [outPath]
+//   node web/scripts/gen-native-catalog.mjs <inventory.md> [outPath]
 // Defaults:
-//   inventory = ../un/docs/rust-migration/NATIVE_INVENTORY.md
 //   out       = web/src/lib/nativeCatalog.ts
+//   inventory = required argument
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const inventoryPath = resolve(process.argv[2] ?? join(repoRoot, '..', 'un', 'docs', 'rust-migration', 'NATIVE_INVENTORY.md'))
+if (!process.argv[2]) {
+  console.error('usage: node web/scripts/gen-native-catalog.mjs <inventory.md> [outPath]')
+  console.error('the original inventory was removed with the migration-era docs; pass an explicit file')
+  process.exit(1)
+}
+const inventoryPath = resolve(process.argv[2])
 const outPath = resolve(process.argv[3] ?? join(repoRoot, 'web', 'src', 'lib', 'nativeCatalog.ts'))
 
 const MODULE_KINDS = new Set(['BuiltinModule', 'NativeModule'])
