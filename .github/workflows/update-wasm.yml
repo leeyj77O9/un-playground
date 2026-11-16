@@ -38,6 +38,12 @@ jobs:
   update:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # The `un` repo pins a Windows-only GNU toolchain in its
+      # rust-toolchain.toml, and rustup refuses to read that file on Linux
+      # ("target tuple in channel name"). RUSTUP_TOOLCHAIN takes precedence
+      # over the file, so the dtolnay-installed Linux stable is used.
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - name: Resolve un revision
         id: un
