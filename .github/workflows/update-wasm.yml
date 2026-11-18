@@ -36,7 +36,11 @@ concurrency:
 
 jobs:
   update:
-    runs-on: ubuntu-latest
+    # ubuntu-latest is mid-migration to Ubuntu 26 (staged rollout since
+    # 2026-10-19). ubuntu-26 broke `cargo test --workspace` for un (exit 101
+    # with zero code changes vs the last green run), while 24.04 stays green.
+    # Pin 24.04; revisit once the 26 image's cargo-test behavior is confirmed.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       # The `un` repo pins a Windows-only GNU toolchain in its
