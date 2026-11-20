@@ -19,9 +19,33 @@ export type UnPlaygroundResult = {
   exitCode: number
 }
 
+export type UnDiagnostic = {
+  start: number
+  length: number
+  line: number
+  column: number
+  message: string
+}
+
+// Mirrors the `playground_check` ABI result from un/rust/playground.
+// `start`/`length` are UTF-16 offsets, so they index JS strings directly.
+export type UnCheckResult = {
+  ok: boolean
+  diagnostics: UnDiagnostic[]
+  vars: [string, string][]
+  fnParams: [string, [string, string][]][]
+  fnReturns: [string, string][]
+}
+
 type PlaygroundAbi = {
   playground_alloc: (len: number) => number
   playground_free: (ptr: number, len: number) => void
+  // optional so an older playground.wasm still loads with JS-only inference
+  playground_check?: (
+    codePtr: number, codeLen: number,
+    filePtr: number, fileLen: number,
+    outLenPtr: number,
+  ) => number
   playground_run: (
     codePtr: number, codeLen: number,
     filePtr: number, fileLen: number,
@@ -131,6 +155,43 @@ export async function runUnScript(source: string, inputs: string[], allowEof = f
     freeBuffer(abi, file.ptr, file.length)
     freeBuffer(abi, allowed.ptr, allowed.length)
     freeBuffer(abi, stdinBuffer.ptr, stdinBuffer.length)
+    if (resultPtr !== 0) freeBuffer(abi, resultPtr, outLength)
+    abi.playground_free(outLenPtr, 4)
+  }
+}
+
+/**
+ * Runs the real `typeck` checker (plus LSP-style type inference) in WASM.
+ * Returns null when the loaded playground.wasm predates the check ABI.
+ */
+export async function checkUnSource(source: string): Promise<UnCheckResult | null> {
+  const abi = await loadPlayground()
+  if (typeof abi.playground_check !== 'function') return null
+
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+  const code = writeBuffer(abi, encoder, source)
+  const file = writeBuffer(abi, encoder, 'playground.un')
+
+  const outLenPtr = abi.playground_alloc(4)
+  let resultPtr = 0
+  let outLength = 0
+  try {
+    resultPtr = abi.playground_check(
+      code.ptr, code.length,
+      file.ptr, file.length,
+      outLenPtr,
+    )
+    outLength = new Uint32Array(abi.memory.buffer, outLenPtr, 1)[0]
+    const json = decoder.decode(new Uint8Array(abi.memory.buffer, resultPtr, outLength))
+    try {
+      return JSON.parse(json) as UnCheckResult
+    } catch {
+      throw new Error(`playground.wasm returned invalid check JSON: ${json.slice(0, 120)}`)
+    }
+  } finally {
+    freeBuffer(abi, code.ptr, code.length)
+    freeBuffer(abi, file.ptr, file.length)
     if (resultPtr !== 0) freeBuffer(abi, resultPtr, outLength)
     abi.playground_free(outLenPtr, 4)
   }

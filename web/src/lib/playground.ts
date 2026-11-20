@@ -3,6 +3,7 @@ io.write("Hello, World!")`;
 export const MAX_PLAYGROUND_SOURCE_CHARS = 12_000;
 export const PLAYGROUND_STORAGE_KEYS = {
   source: "un-playground-source-v1",
+  typeCheck: "un-playground-typecheck-v1",
 } as const;
 
 export type ExecutionStatus = "success" | "error" | "rejected" | "timed_out" | "cancelled";
@@ -18,6 +19,11 @@ export type ExecutionSnapshot = {
 export function restoreSavedSource(savedSource: string | null): string {
   if (savedSource === null || savedSource.length > MAX_PLAYGROUND_SOURCE_CHARS) return PLAYGROUND_DEFAULT_SOURCE;
   return savedSource;
+}
+
+/** Type checking is on by default; only an explicit "off" disables it. */
+export function restoreTypeCheckPreference(saved: string | null): boolean {
+  return saved !== 'off';
 }
 
 export function getEditorLineNumbers(source: string): string {
@@ -1075,9 +1081,29 @@ function tokenizeUnSource(source: string): HighlightToken[] {
   return tokens;
 }
 
-export function highlightUnSource(source: string): string {
+/**
+ * Highlights source and underlines the given diagnostic spans. The spans are
+ * UTF-16 offsets (as returned by the WASM checker), which line up exactly with
+ * JS strings and therefore with the tokenizer's token values.
+ */
+export function highlightUnSource(
+  source: string,
+  diagnostics: readonly { start: number; length: number }[] = [],
+): string {
   let depth = 0;
 
+  const ranges = diagnostics
+    .map((d) => ({ start: Math.max(0, d.start), end: Math.max(0, d.start + d.length) }))
+    .filter((r) => r.end > r.start)
+    .sort((a, b) => a.start - b.start);
+  const merged: typeof ranges = [];
+  for (const range of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+    else merged.push({ ...range });
+  }
+
+  let offset = 0;
   return tokenizeUnSource(source)
     .map(({ type, value }) => {
       let displayType: string = type;
@@ -1090,7 +1116,27 @@ export function highlightUnSource(source: string): string {
           displayType = `bracket-${depth % 3}`;
         }
       }
-      return displayType === "plain" ? escapeHtml(value) : `<span class="un-syntax-${displayType}">${escapeHtml(value)}</span>`;
+      const render = (text: string) =>
+        displayType === "plain"
+          ? escapeHtml(text)
+          : `<span class="un-syntax-${displayType}">${escapeHtml(text)}</span>`;
+
+      const tokenStart = offset;
+      offset += value.length;
+      if (merged.length === 0) return render(value);
+
+      let html = "";
+      let position = 0;
+      for (const range of merged) {
+        if (range.end <= tokenStart || range.start >= tokenStart + value.length) continue;
+        const from = Math.max(range.start, tokenStart) - tokenStart;
+        const to = Math.min(range.end, tokenStart + value.length) - tokenStart;
+        if (from > position) html += render(value.slice(position, from));
+        html += `<span class="un-type-error">${escapeHtml(value.slice(from, to))}</span>`;
+        position = to;
+      }
+      if (position < value.length) html += render(value.slice(position));
+      return html;
     })
     .join("");
 }

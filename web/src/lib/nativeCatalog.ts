@@ -5175,5 +5175,165 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
         positional: false
       }
     ]
+  },
+  {
+    name: "u8",
+    module: "types",
+    description: "Converts an int, float (truncated), or bool to an unsigned 8-bit value (0..=255). Out-of-range values raise an error.",
+    example: "types.u8(255)",
+    returnType: "int",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
+  },
+  {
+    name: "u16",
+    module: "types",
+    description: "Converts an int, float (truncated), or bool to an unsigned 16-bit value (0..=65535). Out-of-range values raise an error.",
+    example: "types.u16(65535)",
+    returnType: "int",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
+  },
+  {
+    name: "u32",
+    module: "types",
+    description: "Converts an int, float (truncated), or bool to an unsigned 32-bit value (0..=4294967295). Out-of-range values raise an error.",
+    example: "types.u32(4294967295)",
+    returnType: "int",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
+  },
+  {
+    name: "u64",
+    module: "types",
+    description: "Converts an int, float (truncated), or bool to an unsigned 64-bit value (0..=i64::MAX; Un ints are signed). Out-of-range values raise an error.",
+    example: "types.u64(9223372036854775807)",
+    returnType: "int",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
+  },
+  {
+    name: "i8",
+    module: "types",
+    description: "Converts an int, float (truncated), or bool to a signed 8-bit value (-128..=127). Out-of-range values raise an error.",
+    example: "types.i8(-128)",
+    returnType: "int",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
+  },
+  {
+    name: "i16",
+    module: "types",
+    description: "Converts an int, float (truncated), or bool to a signed 16-bit value (-32768..=32767). Out-of-range values raise an error.",
+    example: "types.i16(-32768)",
+    returnType: "int",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
+  },
+  {
+    name: "i32",
+    module: "types",
+    description: "Converts an int, float (truncated), or bool to a signed 32-bit value (-2147483648..=2147483647). Out-of-range values raise an error.",
+    example: "types.i32(-2147483648)",
+    returnType: "int",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
+  },
+  {
+    name: "i64",
+    module: "types",
+    description: "Converts an int, float (truncated), or bool to a signed 64-bit value. Out-of-range values raise an error.",
+    example: "types.i64(-9223372036854775808)",
+    returnType: "int",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
+  },
+  {
+    name: "f32",
+    module: "types",
+    description: "Converts an int, float, or bool to the 32-bit floating-point value set (round to nearest). Values that do not fit become +/-inf.",
+    example: "types.f32(1.5)",
+    returnType: "float",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
+  },
+  {
+    name: "f64",
+    module: "types",
+    description: "Converts an int, float, or bool to a 64-bit float (ints above 2^53 lose precision).",
+    example: "types.f64(1.5)",
+    returnType: "float",
+    parameters: [
+      {
+        name: "value",
+        expectedType: "int | float | bool",
+        essential: true,
+        optional: false,
+        positional: false
+      }
+    ]
   }
 ]

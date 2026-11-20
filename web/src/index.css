@@ -448,3 +448,114 @@ body {
   color: #8a7f6c;
   white-space: pre-wrap;
 }
+
+/* ── Editor toolbar ──────────────────────────────────────────────────── */
+.editor-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-toolbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+  background: #fbf8f1;
+  font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.toolbar-group {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.toolbar-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b6252;
+  cursor: pointer;
+}
+
+.toolbar-btn:hover { background: #ece5d8; color: #3b352d; }
+.toolbar-btn:active { background: #e0d7c6; }
+.toolbar-btn[data-active='true'] {
+  background: #e3dbc9;
+  color: #3b352d;
+  box-shadow: inset 0 0 0 1px rgba(90, 80, 65, 0.14);
+}
+.toolbar-btn:focus-visible { outline: 2px solid #b4552d; outline-offset: 1px; }
+.toolbar-icon { display: block; width: 15px; height: 15px; }
+
+.toolbar-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 18px;
+  margin: 0 1px;
+  background: var(--line);
+}
+
+.toolbar-tail {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 90px;
+}
+
+/* ── Live type check ─────────────────────────────────────────────────── */
+.un-type-error {
+  text-decoration: underline wavy #c0392b;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.type-hover {
+  position: absolute;
+  z-index: 8;
+  pointer-events: none;
+  max-width: 320px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fffdf8;
+  box-shadow: 0 6px 18px rgba(60, 45, 25, 0.14);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.type-hover.error {
+  max-width: 360px;
+  border-color: rgba(192, 57, 43, 0.45);
+  background: #fff7f5;
+  white-space: normal;
+}
+
+.type-hover-pos { color: #a19682; margin-right: 8px; }
+.type-hover-message { color: #c0392b; }
+.type-hover-name { color: #2e7d6a; font-weight: 700; }
+.type-hover-colon { color: #8a7f6c; }
+.type-hover-type { color: #7a4a2b; }
+
+

@@ -26,6 +26,24 @@ Rust로 포팅된 `unvm` 런타임(`un/rust`)의 플레이그라운드 크레이
   `node web/scripts/gen-native-catalog.mjs <inventory.md> <outPath>`로
   다시 생성할 수 있습니다.
 
+## 타입 추론 / 타입 체크
+
+에디터는 WASM의 `playground_check` ABI로 `un`의 실제 `typeck` 검사기를 실행합니다
+(`un/rust/src/lsp.rs`의 진단 방식과 동일). 소스 변경 후 180ms 디바운스로 검사합니다.
+
+에디터 상단 툴바에서 **실행**, 실행 취소/다시 실행, 복사, 잘라내기, 모두 선택,
+기본 코드로 초기화를 버튼으로 누를 수 있습니다. 같은 툴바의 **타입 검사**
+아이콘 버튼으로 컴파일 모드(정적 검사)를 켜고 끌 수 있습니다(눌린 상태가 켜짐).
+인터프리터 실행(VM)은 항상 동작하며, 버튼을 끄면 검사만 비활성화됩니다
+(`un` LSP의 `un/compileMode`와 같은 개념). 선택은 브라우저에 저장됩니다.
+
+- 타입 오류는 코드에 빨간 물결 밑줄로 표시되고, 그 위에 마우스를 올리면
+  `줄:열`과 오류 메시지 툴팁이 뜹니다.
+- 오류가 아닌 식별자 위에 마우스를 올리면 `lsp.rs`의 `infer_types` 로직으로
+  얻은 추론 타입 툴팁이 뜹니다.
+- `playground_check`가 없는 구버전 WASM이면 조용히 건너뛰며, 기존 JS
+  자동완성/시그니처 도움말은 그대로 동작합니다.
+
 ## WASM 자동 갱신
 
 `.github/workflows/update-wasm.yml`이 10분마다 `un`의 `main`을 확인합니다.
@@ -97,13 +115,19 @@ git -C ..\un rev-parse HEAD | Set-Content .wasm-source-sha
 - `.wasm-source-sha`는 마지막으로 빌드한 `un` 커밋을 기록합니다.
 - `playground.wasm`은 커밋마다 바뀌므로 Vercel은 `Cache-Control: max-age=0, must-revalidate`로
   서빙합니다 (`vercel.json`).
-- `web/public/playground.wasm`은 이번 작업에서 `un` 저장소의 Rust 코드도
-  함께 수정된(stdin 리플레이/`need_input` 중단 추가: `rust/src/runtime/world.rs`,
-  `rust/src/native/io.rs`, `rust/playground/src/lib.rs`) 로컬 빌드 산출물입니다.
-  `un`에 커밋/push되지 않으면 다음 예약 빌드가 이 수정을 포함하지 않는
-  upstream main에서 산출물을 다시 만들어 대화형 입력이 깨질 수 있습니다.
-  **`un`의 변경을 먼저 push한 뒤** `un-playground`를 push하세요.
+- `web/public/playground.wasm`은 GitHub Actions가 `un`의 커밋된 `main`에서
+  빌드한 산출물이며, `.wasm-source-sha`가 그 커밋을 가리킵니다. stdin
+  리플레이/`need_input` 중단에 사용된 Rust 코드(`rust/src/runtime/world.rs`,
+  `rust/src/native/io.rs`, `rust/playground/src/lib.rs`)도 `un`에 커밋되어
+  있어 예약 빌드가 다시 만들어도 대화형 입력이 유지됩니다. 로컬 `un` 작업
+  트리의 미커밋 변경을 반영하려면 먼저 `un`에 커밋/push해야 합니다.
 - 정적 카탈로그는 참조 문서 시점의 표면이므로, `un`에 네이티브 함수를 추가하면
-  카탈로그를 다시 생성해 커밋해야 자동완성에 반영됩니다.
+  카탈로그를 다시 생성해 커밋해야 자동완성에 반영됩니다. 인벤토리 문서가
+  제거된 뒤 추가된 `types` 모듈(`un@0b49450`)은 `nativeCatalog.ts`에 직접
+  반영되어 있습니다.
+- 현재 `web/public/playground.wasm`에는 `un`의 작업 트리에 로컬로 추가한
+  `playground_check` ABI가 포함되어 있습니다. `un`에 아직 커밋/push되지
+  않았으므로, `un` main이 새 커밋으로 갱신되면 예약 빌드가 이 ABI를 빠뜨리고
+  타입 검사가 **검사 불가**로 돌아갑니다. `un`의 변경을 먼저 커밋/push하세요.
 - GitHub Actions의 기본 `GITHUB_TOKEN`으로 push한 커밋은 다른 *워크플로*를
   트리거하지 않지만, Vercel 같은 외부 Git 연동에는 정상적으로 전달됩니다.

@@ -17,6 +17,7 @@ import {
   PLAYGROUND_STORAGE_KEYS,
   presentExecution,
   restoreSavedSource,
+  restoreTypeCheckPreference,
   applyUnAutocompleteCandidate,
   getUnObjectMethodCandidates,
   getUnAutocompleteCandidates,
@@ -29,12 +30,17 @@ import {
   type UnNativeFunctionMetadata,
   type UnSignatureHelp,
 } from './lib/playground'
+import type { UnCheckResult } from './lib/wasmClient'
 import { useWasm } from './hooks/useWasm'
 import { runUnScript } from './lib/wasmClient'
 
 type Phase = 'idle' | 'running' | 'waiting' | 'done'
 
 type InputInsertion = { at: number; value: string; kind: 'input' | 'output' }
+
+type HoverInfo =
+  | { kind: 'error'; message: string; line: number; column: number; top: number; left: number }
+  | { kind: 'type'; word: string; type: string; top: number; left: number }
 
 const KIND_LABEL: Record<UnAutocompleteCandidate['kind'], string> = {
   keyword: 'kw',
@@ -62,17 +68,60 @@ const measureTextWidth = (text: string, font: string) => {
   return measureCtx.measureText(text).width
 }
 
+type ToolbarIconName = 'play' | 'undo' | 'redo' | 'copy' | 'check' | 'cut' | 'select' | 'reset' | 'typecheck'
+
+function ToolbarIcon({ name }: { name: ToolbarIconName }) {
+  const svg = {
+    width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 1.5,
+    strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  }
+  switch (name) {
+    case 'play':
+      return <svg {...svg}><path d="M4.6 2.9 12.6 8l-8 5.1V2.9Z" fill="currentColor" stroke="none" /></svg>
+    case 'undo':
+      return <svg {...svg}><path d="M6.2 4 3 7.2l3.2 3.2" /><path d="M3 7.2h6.2a3.8 3.8 0 0 1 0 7.6H6" /></svg>
+    case 'redo':
+      return <svg {...svg}><path d="M9.8 4 13 7.2l-3.2 3.2" /><path d="M13 7.2H6.8a3.8 3.8 0 0 0 0 7.6H10" /></svg>
+    case 'copy':
+      return <svg {...svg}><rect x="5.5" y="5.5" width="8" height="8" rx="1.5" /><path d="M10.5 3.5h-7a1 1 0 0 0-1 1v7" /></svg>
+    case 'check':
+      return <svg {...svg}><path d="M3 8.4 6.2 11.6 13 4.7" /></svg>
+    case 'cut':
+      return <svg {...svg}><circle cx="4" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><path d="M5.4 10.7 12 3M10.6 10.7 4 3" /></svg>
+    case 'select':
+      return <svg {...svg}><rect x="2.8" y="2.8" width="10.4" height="10.4" rx="1.5" strokeDasharray="2.5 2.2" /></svg>
+    case 'reset':
+      return <svg {...svg}><path d="M2.8 8A5.2 5.2 0 1 0 4.6 4.1" /><path d="M2.8 3.6v3.6h3.6" /></svg>
+    case 'typecheck':
+      return <svg {...svg}><circle cx="8" cy="8" r="5.6" /><path d="M5.5 8.1 7.3 9.9 10.7 6.2" /></svg>
+  }
+}
+
 /* ── Source Editor ──────────────────────────────────────────────────── */
 function SourceEditor({
   value,
   onChange,
   onRun,
   nativeFunctions,
+  checkResult,
+  onUndo,
+  onRedo,
+  onReset,
+  typeCheckEnabled,
+  onToggleTypeCheck,
 }: {
   value: string
   onChange: (next: string) => void
   onRun: () => void
   nativeFunctions: UnNativeFunctionMetadata[]
+  checkResult: UnCheckResult | null
+  onUndo: () => void
+  onRedo: () => void
+  onReset: () => void
+  typeCheckEnabled: boolean
+  onToggleTypeCheck: (enabled: boolean) => void
 }) {
   const highlightRef = useRef<HTMLElement>(null)
   const gutterRef = useRef<HTMLPreElement>(null)
@@ -84,8 +133,73 @@ function SourceEditor({
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
   const [sigHelp, setSigHelp] = useState<UnSignatureHelp | null>(null)
   const [sigPos, setSigPos] = useState({ top: 0, left: 0 })
+  const [hover, setHover] = useState<HoverInfo | null>(null)
+  const [copied, setCopied] = useState(false)
+  const copyTimerRef = useRef<number | null>(null)
 
-  const highlighted = useMemo(() => highlightUnSource(value), [value])
+  useEffect(() => {
+    if (checkResult === null) setHover(null)
+  }, [checkResult])
+
+  useEffect(() => () => {
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
+  }, [])
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      const el = textareaRef.current
+      if (el) {
+        el.focus()
+        el.select()
+        document.execCommand('copy')
+      }
+    }
+    setCopied(true)
+    if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
+    copyTimerRef.current = window.setTimeout(() => setCopied(false), 1200)
+  }
+
+  const selectionRange = () => {
+    const el = textareaRef.current
+    return el ? { start: el.selectionStart, end: el.selectionEnd } : { start: 0, end: 0 }
+  }
+
+  const handleRun = () => {
+    setAcVisible(false)
+    setSigHelp(null)
+    setHover(null)
+    onRun()
+  }
+
+  const handleCopy = () => { void copyText(value) }
+
+  const handleCut = () => {
+    const { start, end } = selectionRange()
+    if (start === end) return
+    void copyText(value.slice(start, end))
+    onChange(value.slice(0, start) + value.slice(end))
+  }
+
+  const handleSelectAll = () => {
+    const el = textareaRef.current
+    if (!el) return
+    el.focus()
+    el.select()
+  }
+
+  const handleReset = () => {
+    setAcVisible(false)
+    setSigHelp(null)
+    setHover(null)
+    onReset()
+  }
+
+  const highlighted = useMemo(
+    () => highlightUnSource(value, checkResult?.diagnostics ?? []),
+    [value, checkResult],
+  )
   const lineNumbers = useMemo(() => getEditorLineNumbers(value), [value])
 
   // 케어 위치(.code-surface 기준) — 팝업이 현재 라인 바로 아래에 뜨도록
@@ -179,6 +293,84 @@ function SourceEditor({
     }
   }
 
+  // 빨간 밑줄(진단) 위에서는 오류 메시지를, 그 외에는 추론 타입을 표시
+  const handleMouseMove = (event: MouseEvent<HTMLTextAreaElement>) => {
+    if (!checkResult) {
+      setHover(null)
+      return
+    }
+    const el = event.currentTarget
+    const style = window.getComputedStyle(el)
+    const lineHeight = Number.parseFloat(style.lineHeight) || 22.75
+    const padLeft = Number.parseFloat(style.paddingLeft) || 0
+    const padTop = Number.parseFloat(style.paddingTop) || 0
+    const rect = el.getBoundingClientRect()
+    const x = event.clientX - rect.left + el.scrollLeft - padLeft
+    const y = event.clientY - rect.top + el.scrollTop - padTop
+    if (x < 0 || y < 0) {
+      setHover(null)
+      return
+    }
+    const lines = value.split('\n')
+    const lineIndex = Math.floor(y / lineHeight)
+    const line = lines[lineIndex]
+    if (line === undefined) {
+      setHover(null)
+      return
+    }
+    let width = 0
+    let column = line.length
+    for (let i = 0; i < line.length; i++) {
+      const charWidth = measureTextWidth(line[i], style.font)
+      // 마우스가 글자의 절반을 넘기면 다음 글자가 아닌 현재 글자로 처리
+      if (width + charWidth / 2 >= x) {
+        column = i
+        break
+      }
+      width += charWidth
+    }
+    const lineStart = lines.slice(0, lineIndex).reduce((sum, text) => sum + text.length + 1, 0)
+    const offset = lineStart + column
+    const top = event.clientY - rect.top + 14
+    const left = event.clientX - rect.left + 12
+
+    // 1) 진단 범위(빨간 물결 밑줄)에 마우스가 있으면 오류 메시지 우선
+    const diagnostic = checkResult.diagnostics.find(
+      (item) => offset >= item.start && offset < item.start + item.length,
+    )
+    if (diagnostic) {
+      setHover({
+        kind: 'error',
+        message: diagnostic.message,
+        line: diagnostic.line,
+        column: diagnostic.column,
+        top,
+        left,
+      })
+      return
+    }
+
+    // 2) 그 밖의 식별자는 WASM 추론 타입
+    let word: string | null = null
+    const identifier = /[A-Za-z_][A-Za-z0-9_]*/g
+    let match: RegExpExecArray | null
+    while ((match = identifier.exec(line)) !== null) {
+      if (column >= match.index && column <= match.index + match[0].length) {
+        word = match[0]
+        break
+      }
+    }
+    if (!word) {
+      setHover(null)
+      return
+    }
+    const type =
+      checkResult.vars.find(([name]) => name === word)?.[1] ??
+      checkResult.fnReturns.find(([name]) => name === word)?.[1] ??
+      null
+    setHover(type ? { kind: 'type', word, type, top, left } : null)
+  }
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return
 
@@ -246,8 +438,54 @@ function SourceEditor({
   }
 
   return (
-    <div className="code-editor">
-      <div className="code-gutter" aria-hidden="true">
+    <div className="editor-pane">
+      <div className="editor-toolbar">
+        <div className="toolbar-group">
+          <button className="toolbar-btn" onClick={handleRun} title="실행 (Ctrl+Enter)" aria-label="실행">
+            <ToolbarIcon name="play" />
+          </button>
+        </div>
+        <span className="toolbar-divider" />
+        <div className="toolbar-group">
+          <button className="toolbar-btn" onClick={onUndo} title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">
+            <ToolbarIcon name="undo" />
+          </button>
+          <button className="toolbar-btn" onClick={onRedo} title="다시 실행 (Ctrl+Y)" aria-label="다시 실행">
+            <ToolbarIcon name="redo" />
+          </button>
+        </div>
+        <span className="toolbar-divider" />
+        <div className="toolbar-group">
+          <button className="toolbar-btn" onClick={handleCopy} title="코드 복사" aria-label={copied ? '복사됨' : '코드 복사'}>
+            <ToolbarIcon name={copied ? 'check' : 'copy'} />
+          </button>
+          <button className="toolbar-btn" onClick={handleCut} title="선택 영역 잘라내기 (Ctrl+X)" aria-label="잘라내기">
+            <ToolbarIcon name="cut" />
+          </button>
+          <button className="toolbar-btn" onClick={handleSelectAll} title="모두 선택 (Ctrl+A)" aria-label="모두 선택">
+            <ToolbarIcon name="select" />
+          </button>
+          <button className="toolbar-btn" onClick={handleReset} title="기본 코드로 초기화" aria-label="기본 코드로 초기화">
+            <ToolbarIcon name="reset" />
+          </button>
+        </div>
+        <div className="toolbar-tail">
+          <div className="toolbar-group">
+            <button
+              className="toolbar-btn"
+              data-active={typeCheckEnabled}
+              onClick={() => onToggleTypeCheck(!typeCheckEnabled)}
+              title={typeCheckEnabled ? '타입 검사 켜짐 · 정적 검사 + 실행' : '타입 검사 꺼짐 · 실행만'}
+              aria-label="타입 검사"
+              aria-pressed={typeCheckEnabled}
+            >
+              <ToolbarIcon name="typecheck" />
+            </button>
+          </div>
+        </div>
+      </div>
+      <div className="code-editor">
+        <div className="code-gutter" aria-hidden="true">
         <pre ref={gutterRef}>{lineNumbers}</pre>
       </div>
       <div className="code-surface">
@@ -260,8 +498,11 @@ function SourceEditor({
           aria-label="Un source code"
           value={value}
           onChange={handleTextChange}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setHover(null)}
           onScroll={(event) => {
             syncScroll(event.currentTarget)
+            setHover(null)
             if (acVisible || sigHelp) {
               positionPopups(
                 event.currentTarget,
@@ -274,6 +515,7 @@ function SourceEditor({
           onBlur={() => {
             setAcVisible(false)
             setSigHelp(null)
+            setHover(null)
           }}
           onKeyDown={handleKeyDown}
           spellCheck={false}
@@ -281,6 +523,26 @@ function SourceEditor({
           autoCorrect="off"
           wrap="off"
         />
+        {hover && (
+          <div
+            className={`type-hover${hover.kind === 'error' ? ' error' : ''}`}
+            role="tooltip"
+            style={{ top: hover.top, left: hover.left }}
+          >
+            {hover.kind === 'error' ? (
+              <>
+                <span className="type-hover-pos">{hover.line + 1}:{hover.column + 1}</span>
+                <span className="type-hover-message">{hover.message}</span>
+              </>
+            ) : (
+              <>
+                <span className="type-hover-name">{hover.word}</span>
+                <span className="type-hover-colon">: </span>
+                <span className="type-hover-type">{hover.type}</span>
+              </>
+            )}
+          </div>
+        )}
         {sigHelp && (
           <div
             className="signature-help"
@@ -334,6 +596,7 @@ function SourceEditor({
             ))}
           </ul>
         )}
+      </div>
       </div>
     </div>
   )
@@ -495,6 +758,14 @@ export default function Home() {
       return PLAYGROUND_DEFAULT_SOURCE
     }
   })
+  const [typeCheckEnabled, setTypeCheckEnabled] = useState(() => {
+    if (typeof window === 'undefined') return true
+    try {
+      return restoreTypeCheckPreference(window.localStorage.getItem(PLAYGROUND_STORAGE_KEYS.typeCheck))
+    } catch {
+      return true
+    }
+  })
   const [phase, setPhase] = useState<Phase>('idle')
   const [result, setResult] = useState<ExecutionSnapshot | null>(null)
   const [transcript, setTranscript] = useState('')
@@ -515,7 +786,19 @@ export default function Home() {
   const historyRef = useRef<string[]>([source])
   const historyIndexRef = useRef(0)
 
-  const { nativeFunctions } = useWasm()
+  const { nativeFunctions, checkResult: rawCheckResult } = useWasm(source, typeCheckEnabled)
+  const checkResult = typeCheckEnabled ? rawCheckResult : null
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        PLAYGROUND_STORAGE_KEYS.typeCheck,
+        typeCheckEnabled ? 'on' : 'off',
+      )
+    } catch {
+      /* storage unavailable */
+    }
+  }, [typeCheckEnabled])
 
   const changePhase = (next: Phase) => {
     phaseRef.current = next
@@ -547,6 +830,11 @@ export default function Home() {
       const next = historyRef.current[historyIndexRef.current]
       setSource(next)
     }
+  }
+
+  const resetSource = () => {
+    addToHistory(PLAYGROUND_DEFAULT_SOURCE)
+    setSource(PLAYGROUND_DEFAULT_SOURCE)
   }
 
   useEffect(() => {
@@ -798,7 +1086,18 @@ export default function Home() {
         style={{ '--editor-width': `${leftPct}%` } as CSSProperties}
       >
         <section className="pane pane-editor">
-          <SourceEditor value={source} onChange={setSource} onRun={handleRunShortcut} nativeFunctions={nativeFunctions} />
+          <SourceEditor
+            value={source}
+            onChange={setSource}
+            onRun={handleRunShortcut}
+            nativeFunctions={nativeFunctions}
+            checkResult={checkResult}
+            onUndo={doUndo}
+            onRedo={doRedo}
+            onReset={resetSource}
+            typeCheckEnabled={typeCheckEnabled}
+            onToggleTypeCheck={setTypeCheckEnabled}
+          />
         </section>
 
         <div
