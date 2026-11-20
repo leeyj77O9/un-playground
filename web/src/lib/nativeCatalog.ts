@@ -154,7 +154,7 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
   },
   {
     name: "chr",
-    module: "builtin",
+    module: "codes",
     description: "Converts an ASCII/Unicode code point to a single-character string.",
     example: "chr(65) // \"A\\",
     returnType: "str",
@@ -170,7 +170,7 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
   },
   {
     name: "ord",
-    module: "builtin",
+    module: "codes",
     description: "Converts a single-character string to its ASCII/Unicode code point.",
     example: "ord(\"A\") // 65",
     returnType: "int",
@@ -186,7 +186,7 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
   },
   {
     name: "bin",
-    module: "builtin",
+    module: "codes",
     description: "Converts an integer to a binary string with '0b' prefix.",
     example: "bin(10) // \"0b1010\\",
     returnType: "str",
@@ -202,7 +202,7 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
   },
   {
     name: "oct",
-    module: "builtin",
+    module: "codes",
     description: "Converts an integer to an octal string with '0o' prefix.",
     example: "oct(10) // \"0o12\\",
     returnType: "str",
@@ -218,7 +218,7 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
   },
   {
     name: "hex",
-    module: "builtin",
+    module: "codes",
     description: "Converts an integer to a hexadecimal string with '0x' prefix.",
     example: "hex(255) // \"0xff\\",
     returnType: "str",
@@ -250,7 +250,7 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
   },
   {
     name: "ascii",
-    module: "builtin",
+    module: "codes",
     description: "Convert to ascii for char",
     example: "ascii('a')",
     returnType: "int",

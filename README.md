@@ -123,11 +123,16 @@ git -C ..\un rev-parse HEAD | Set-Content .wasm-source-sha
   트리의 미커밋 변경을 반영하려면 먼저 `un`에 커밋/push해야 합니다.
 - 정적 카탈로그는 참조 문서 시점의 표면이므로, `un`에 네이티브 함수를 추가하면
   카탈로그를 다시 생성해 커밋해야 자동완성에 반영됩니다. 인벤토리 문서가
-  제거된 뒤 추가된 `types` 모듈(`un@0b49450`)은 `nativeCatalog.ts`에 직접
+  제거된 뒤 추가된 `types` 모듈(`un@0b49450`)과 `builtin`에서 `codes`로
+  옮겨진 `bin`/`oct`/`hex`/`chr`/`ord`/`ascii`는 `nativeCatalog.ts`에 직접
   반영되어 있습니다.
-- 현재 `web/public/playground.wasm`에는 `un`의 작업 트리에 로컬로 추가한
-  `playground_check` ABI가 포함되어 있습니다. `un`에 아직 커밋/push되지
-  않았으므로, `un` main이 새 커밋으로 갱신되면 예약 빌드가 이 ABI를 빠뜨리고
-  타입 검사가 **검사 불가**로 돌아갑니다. `un`의 변경을 먼저 커밋/push하세요.
+- `codes`와 `types`는 플레이그라운드의 기본 허용 모듈에도 포함되어 있어
+  `use codes { chr }` / `use types`로 사용할 수 있습니다. `codes`의 함수는
+  `use codes`만으로는 노출되지 않고 `codes.chr(...)` 또는 명시적 바인딩이
+  필요합니다.
+- 현재 `web/public/playground.wasm`은 `un`의 `playground_check` ABI와
+  `codes`/`types` 허용 변경을 포함해 로컬에서 다시 빌드한 산출물입니다.
+  `un`의 해당 커밋이 아직 push되지 않았으므로, `un` main이 갱신되면 예약
+  빌드가 이 변경들을 빠뜨릴 수 있습니다. `un` 변경을 먼저 push하세요.
 - GitHub Actions의 기본 `GITHUB_TOKEN`으로 push한 커밋은 다른 *워크플로*를
   트리거하지 않지만, Vercel 같은 외부 Git 연동에는 정상적으로 전달됩니다.
