@@ -56,8 +56,10 @@ const NATIVE_TYPE_FOR_MODULE: Record<string, string[]> = {
   random: ["random"],
 };
 
+// Keep in sync with the native modules registered in un/rust/src/native/mod.rs.
 const UN_MODULES = new Set([
-  "io", "fs", "math", "iter", "re", "random", "sys", "time", "http", "ws", "inspect", "flow", "builtin",
+  "io", "inspect", "math", "iter", "os", "sys", "fs", "types", "time", "random",
+  "flow", "atomic", "re", "codes", "http", "ws", "builtin",
 ]);
 
 function extractUnClassNames(source: string): string[] {
