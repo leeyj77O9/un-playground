@@ -230,7 +230,7 @@ function SourceEditor({
   const updateSignatureHelp = (el: HTMLTextAreaElement | null, text: string, acCount = 0) => {
     if (!el) return
     const cursor = el.selectionStart ?? text.length
-    setSigHelp(getUnSignatureHelp(text, cursor, nativeFunctions))
+    setSigHelp(getUnSignatureHelp(text, cursor, nativeFunctions, checkResult))
     positionPopups(el, cursor, text, acCount)
   }
 
@@ -240,12 +240,12 @@ function SourceEditor({
       return 0
     }
     // io. / math. 같은 dot 컨텍스트가 우선
-    const dotCandidates = getUnObjectMethodCandidates(text, cursor, nativeFunctions)
+    const dotCandidates = getUnObjectMethodCandidates(text, cursor, nativeFunctions, checkResult)
     const range = getUnAutocompleteRange(text, cursor)
     const next = dotCandidates !== null
       ? dotCandidates
       : range.query.length > 0
-        ? getUnAutocompleteCandidates(text, range.query, nativeFunctions)
+        ? getUnAutocompleteCandidates(text, range.query, nativeFunctions, checkResult)
         : []
     if (next.length === 0) {
       setAcVisible(false)
@@ -280,9 +280,18 @@ function SourceEditor({
     syncScroll(event.target)
     const cursor = event.target.selectionStart ?? text.length
     const acCount = refreshAutocomplete(text, cursor)
-    setSigHelp(getUnSignatureHelp(text, cursor, nativeFunctions))
+    setSigHelp(getUnSignatureHelp(text, cursor, nativeFunctions, checkResult))
     positionPopups(event.target, cursor, text, acCount)
   }
+
+  // 추론 결과가 도착하면 현재 커서 기준으로 제안/시그니처를 다시 계산
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el || !acVisible) return
+    const cursor = el.selectionStart ?? value.length
+    const acCount = refreshAutocomplete(value, cursor)
+    updateSignatureHelp(el, value, acCount)
+  }, [checkResult])
 
   const syncScroll = (el: HTMLTextAreaElement) => {
     if (gutterRef.current) {
@@ -592,6 +601,7 @@ function SourceEditor({
               >
                 <span className="ac-kind">{KIND_LABEL[candidate.kind]}</span>
                 <span className="ac-label">{candidate.label}</span>
+                {candidate.detail && <span className="ac-detail">{candidate.detail}</span>}
               </li>
             ))}
           </ul>

@@ -26,6 +26,11 @@ Rust로 포팅된 `unvm` 런타임(`un/rust`)의 플레이그라운드 크레이
   `node web/scripts/gen-native-catalog.mjs <inventory.md> <outPath>`로
   다시 생성할 수 있습니다.
 
+자동완성은 `lsp.rs`를 참고해 보강했습니다: 등록된 모든 모듈 이름 제안,
+키워드 스니펫(`if`/`for`/`fn` 등), 실제 추론 타입을 제안 목록 오른쪽에 표시,
+`self.` 및 추론된 타입 기반 멤버 완성. 타입 검사가 켜져 있으면
+`playground_check`의 추론 결과를 우선 사용합니다.
+
 ## 타입 추론 / 타입 체크
 
 에디터는 WASM의 `playground_check` ABI로 `un`의 실제 `typeck` 검사기를 실행합니다

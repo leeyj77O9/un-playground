@@ -1,3 +1,5 @@
+import type { UnCheckResult } from './wasmClient'
+
 export const PLAYGROUND_DEFAULT_SOURCE = `use io
 io.write("Hello, World!")`;
 export const MAX_PLAYGROUND_SOURCE_CHARS = 12_000;
@@ -62,6 +64,62 @@ const UN_MODULES = new Set([
   "flow", "atomic", "re", "codes", "http", "ws", "builtin",
 ]);
 
+// Mirrors the completion lists in un/rust/src/lsp.rs.
+const UN_COMPLETION_KEYWORDS = [
+  "if", "elif", "else", "match", "for", "while", "break", "skip", "try", "catch", "finally",
+  "defer", "return", "use", "using", "fn", "class", "enum", "go", "wait", "in", "is", "as",
+  "and", "or", "xor", "not",
+];
+const UN_TYPE_COMPLETIONS = ["int", "float", "bool", "str", "any"];
+const UN_LANGUAGE_COMPLETIONS = ["none", "true", "false", "self", "field", "value"];
+
+const UN_KEYWORD_SNIPPETS: ReadonlyArray<{ label: string; insertText: string; detail: string }> = [
+  { label: "if", insertText: "if ${1:condition}\n    $0", detail: "if statement" },
+  { label: "elif", insertText: "elif ${1:condition}\n    $0", detail: "elif branch" },
+  { label: "else", insertText: "else\n    $0", detail: "else branch" },
+  { label: "for", insertText: "for ${1:item} in ${2:iter}\n    $0", detail: "for loop" },
+  { label: "while", insertText: "while ${1:condition}\n    $0", detail: "while loop" },
+  { label: "match", insertText: "match ${1:value}\n    ${2:case} -> $0", detail: "match expression" },
+  { label: "try", insertText: "try\n    $0\ncatch ${1:e}\n    $0", detail: "try-catch" },
+  { label: "catch", insertText: "catch ${1:e}\n    $0", detail: "catch block" },
+  { label: "finally", insertText: "finally\n    $0", detail: "finally block" },
+  { label: "fn", insertText: "fn ${1:name}(${2:params})\n    $0", detail: "function" },
+  { label: "class", insertText: "class ${1:Name}\n    $0", detail: "class" },
+  { label: "enum", insertText: "enum ${1:Name}\n    $0", detail: "enum" },
+  { label: "defer", insertText: "defer ${1:expr}", detail: "defer statement" },
+  { label: "go", insertText: "go ${1:expr}", detail: "spawn task" },
+  { label: "wait", insertText: "wait ${1:expr}", detail: "wait for task" },
+  { label: "using", insertText: "using ${1:name} = ${2:expr}\n    $0", detail: "using statement" },
+];
+
+/** Base type name for catalog lookup: `list[int]` -> `list`, `dict[str, int]` -> `dict`. */
+function baseTypeName(type: string): string {
+  return type.split(/[\[|<]/)[0]?.trim() ?? type;
+}
+
+function nativeModuleNames(nativeFunctions: readonly UnNativeFunctionMetadata[]): string[] {
+  const modules = new Set<string>();
+  for (const entry of nativeFunctions) {
+    if (!entry.module.startsWith("type:")) modules.add(entry.module);
+  }
+  return Array.from(modules).sort();
+}
+
+/** Innermost `class Name` enclosing the cursor (lsp.rs: enclosing_class). */
+function getEnclosingClassName(source: string, cursor: number): string | null {
+  const lines = source.slice(0, cursor).split('\n');
+  let cursorIndent = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i] ?? '';
+    if (!line.trim()) continue;
+    const indent = line.search(/\S|$/);
+    const match = line.match(/^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)/);
+    if (match && (cursorIndent === -1 || indent < cursorIndent)) return match[1] ?? null;
+    if (cursorIndent === -1) cursorIndent = indent;
+  }
+  return null;
+}
+
 function extractUnClassNames(source: string): string[] {
   const names: string[] = []
   const re = /^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)/gm
@@ -103,6 +161,8 @@ export type UnAutocompleteCandidate = {
   label: string;
   kind: UnAutocompleteKind;
   detail: string;
+  /** LSP-style snippet (`${1:name}`, `$0`) inserted instead of `label`. */
+  insertText?: string;
 };
 
 export type UnAutocompleteRange = {
@@ -386,7 +446,12 @@ export type UnSignatureHelp = {
   activeIndex: number;
 };
 
-export function getUnSignatureHelp(source: string, cursor: number, nativeFunctions: readonly UnNativeFunctionMetadata[] = []): UnSignatureHelp | null {
+export function getUnSignatureHelp(
+  source: string,
+  cursor: number,
+  nativeFunctions: readonly UnNativeFunctionMetadata[] = [],
+  checkResult: UnCheckResult | null = null,
+): UnSignatureHelp | null {
   if (isUnInsideString(source, cursor)) return null;
 
   const context = getUnSignatureHelpContext(source, cursor);
@@ -404,12 +469,15 @@ export function getUnSignatureHelp(source: string, cursor: number, nativeFunctio
       const mod = used.get(qualifier);
       if (mod) entry = nativeFunctions.find((candidate) => candidate.module === mod && candidate.name === functionName);
       if (!entry) {
-        const receiverType = getUnExpressionType(
-          qualifier,
-          getUnInferredSymbolTypes(source, nativeFunctions),
-          extractUnFunctionReturnTypes(source),
-          nativeFunctions,
-        );
+        const realType = checkResult?.vars.find(([name]) => name === qualifier)?.[1];
+        const receiverType = realType
+          ? baseTypeName(realType)
+          : getUnExpressionType(
+              qualifier,
+              getUnInferredSymbolTypes(source, nativeFunctions),
+              extractUnFunctionReturnTypes(source),
+              nativeFunctions,
+            );
         if (receiverType) {
           entry = nativeFunctions.find((candidate) => candidate.module === `type:${receiverType}` && candidate.name === functionName);
         }
@@ -523,31 +591,70 @@ export function getUnAutocompleteRange(source: string, cursor: number): UnAutoco
   return { start, end, query: source.slice(start, end) };
 }
 
-export function getUnAutocompleteCandidates(source: string, query: string, nativeFunctions: readonly UnNativeFunctionMetadata[] = [], limit = 8): UnAutocompleteCandidate[] {
+export function getUnAutocompleteCandidates(
+  source: string,
+  query: string,
+  nativeFunctions: readonly UnNativeFunctionMetadata[] = [],
+  checkResult: UnCheckResult | null = null,
+  limit = 8,
+): UnAutocompleteCandidate[] {
   const normalizedQuery = query.toLowerCase();
   if (!normalizedQuery) {
     return [];
   }
 
+  // Real types from the WASM checker (lsp.rs uses its typeck/infer_types the
+  // same way). Falls back to the text scan when checking is off or pending.
+  const realVars = new Map(checkResult?.vars ?? []);
+  const realFnParams = new Map(checkResult?.fnParams ?? []);
+  const realFnReturns = new Map(checkResult?.fnReturns ?? []);
+  const fnDetail = (name: string) => {
+    const params = realFnParams.get(name);
+    const ret = realFnReturns.get(name);
+    if (!params && !ret) return "defined function";
+    return `fn ${name}(${(params ?? []).map(([p, t]) => `${p}: ${t}`).join(', ')})${ret ? ` -> ${ret}` : ''}`;
+  };
+
   const candidates = new Map<string, UnAutocompleteCandidate>();
-  const addCandidates = (labels: string[], kind: UnAutocompleteKind, detail: string) => {
+  const addCandidates = (
+    labels: string[],
+    kind: UnAutocompleteKind,
+    detail: string,
+    insertText?: string,
+  ) => {
     labels.forEach((label) => {
       if (!label.toLowerCase().startsWith(normalizedQuery) || candidates.has(label)) return;
-      candidates.set(label, { label, kind, detail });
+      candidates.set(label, { label, kind, detail, insertText });
     });
   };
 
+  // Snippets first so they win over the plain keyword entry for the same word.
+  for (const snippet of UN_KEYWORD_SNIPPETS) {
+    addCandidates([snippet.label], "keyword", snippet.detail, snippet.insertText);
+  }
+
   const sourceSymbols = extractUnSourceSymbols(source);
-  addCandidates(sourceSymbols.filter((candidate) => candidate.kind === "function").map((candidate) => candidate.label), "function", "defined function");
-  addCandidates(sourceSymbols.filter((candidate) => candidate.kind === "variable").map((candidate) => candidate.label), "variable", "defined variable");
+  for (const symbol of sourceSymbols) {
+    if (symbol.kind === "function") addCandidates([symbol.label], "function", fnDetail(symbol.label));
+    else addCandidates([symbol.label], "variable", realVars.get(symbol.label) ?? "defined variable");
+  }
+  // Names inferred by typeck that the text scan may miss (locals, params).
+  for (const [name, type] of realVars) addCandidates([name], "variable", type);
+  for (const [name] of realFnParams) addCandidates([name], "function", fnDetail(name));
+
   const usedMap = getUsedNativeModuleMap(source);
-  // use한 모듈 자체를 변수로 제안 (io, math, fs 등 — alias 포함)
-  addCandidates(Array.from(usedMap.keys()), "variable", "module");
-  // use한 모듈의 NativeType도 함께 제안 (예: use io → stream)
+  // Every registered module is suggestable (lsp.rs: native_catalog().module_names),
+  // not only the ones already imported in the file.
+  addCandidates(
+    Array.from(new Set([...usedMap.keys(), ...nativeModuleNames(nativeFunctions)])),
+    "variable",
+    "module",
+  );
   for (const mod of new Set(usedMap.values())) {
     const nativeTypes = NATIVE_TYPE_FOR_MODULE[mod];
     if (nativeTypes) addCandidates(nativeTypes, "variable", "native type");
   }
+
   const bareMap = getBareImportMap(source);
   nativeFunctions.forEach((entry) => {
     if (entry.module.startsWith("type:")) return;
@@ -574,9 +681,12 @@ export function getUnAutocompleteCandidates(source: string, query: string, nativ
       }
     }
   }
+
   addCandidates(Array.from(UN_BUILTIN_TYPES), "variable", "builtin type");
+  addCandidates(Array.from(UN_TYPE_COMPLETIONS), "variable", "builtin type");
+  addCandidates(Array.from(UN_LANGUAGE_COMPLETIONS), "variable", "language value");
   addCandidates(extractUnClassNames(source), "variable", "class");
-  addCandidates(Array.from(UN_KEYWORDS), "keyword", "keyword");
+  addCandidates(Array.from(UN_COMPLETION_KEYWORDS), "keyword", "keyword");
 
   return Array.from(candidates.values()).slice(0, Math.max(0, limit));
 }
@@ -775,7 +885,13 @@ function getUnInferredSymbolTypes(source: string, nativeFunctions: readonly UnNa
   return symbols;
 }
 
-export function getUnObjectMethodCandidates(source: string, cursor: number, nativeFunctions: readonly UnNativeFunctionMetadata[] = [], limit = 8): UnAutocompleteCandidate[] | null {
+export function getUnObjectMethodCandidates(
+  source: string,
+  cursor: number,
+  nativeFunctions: readonly UnNativeFunctionMetadata[] = [],
+  checkResult: UnCheckResult | null = null,
+  limit = 8,
+): UnAutocompleteCandidate[] | null {
   if (isUnInsideString(source, cursor)) return null;
 
   const range = getUnAutocompleteRange(source, cursor);
@@ -816,12 +932,19 @@ export function getUnObjectMethodCandidates(source: string, cursor: number, nati
     return moduleCandidates;
   }
 
-  const receiverType = getUnExpressionType(
-    receiverExpression,
-    getUnInferredSymbolTypes(precedingSource, nativeFunctions),
-    extractUnFunctionReturnTypes(precedingSource),
-    nativeFunctions,
-  );
+  const realType = checkResult?.vars.find(([name]) => name === receiverExpression)?.[1];
+  const inferredType = realType
+    ? baseTypeName(realType)
+    : getUnExpressionType(
+        receiverExpression,
+        getUnInferredSymbolTypes(precedingSource, nativeFunctions),
+        extractUnFunctionReturnTypes(precedingSource),
+        nativeFunctions,
+      );
+  // `self.` resolves to the enclosing class even without an annotation.
+  const receiverType = receiverExpression === "self"
+    ? getEnclosingClassName(source, cursor) ?? inferredType
+    : inferredType;
   if (!receiverType) return [];
   // 1) 네이티브 타입 메서드
   const nativeCandidates = nativeFunctions
@@ -844,8 +967,26 @@ export function getUnObjectMethodCandidates(source: string, cursor: number, nati
 }
 
 export function applyUnAutocompleteCandidate(source: string, range: UnAutocompleteRange, candidate: UnAutocompleteCandidate): { source: string; cursor: number } {
-  const nextSource = `${source.slice(0, range.start)}${candidate.label}${source.slice(range.end)}`;
-  return { source: nextSource, cursor: range.start + candidate.label.length };
+  const insert = candidate.insertText ?? candidate.label;
+  // Expand LSP snippet placeholders: ${1:name} -> name, $0 -> ''.
+  // The caret lands after the first placeholder so it can be typed over.
+  let text = "";
+  let firstPlaceholderEnd: number | null = null;
+  let last = 0;
+  const placeholder = /\$\{\d+:([^}]*)\}|\$\d+/g;
+  let match: RegExpExecArray | null;
+  while ((match = placeholder.exec(insert)) !== null) {
+    text += insert.slice(last, match.index);
+    const value = match[1] ?? "";
+    text += value;
+    if (firstPlaceholderEnd === null) firstPlaceholderEnd = text.length;
+    last = match.index + match[0].length;
+  }
+  text += insert.slice(last);
+
+  const nextSource = `${source.slice(0, range.start)}${text}${source.slice(range.end)}`;
+  const cursor = range.start + (firstPlaceholderEnd ?? text.length);
+  return { source: nextSource, cursor };
 }
 
 function escapeHtml(value: string) {
