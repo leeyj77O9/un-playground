@@ -395,6 +395,54 @@ function SourceEditor({
     })
   }
 
+  const sourceLines = useMemo(() => value.split('\n'), [value])
+  const pendingFoldCaretRef = useRef<number | null>(null)
+
+  const sourceLineAtOffset = (offset: number) => {
+    let pos = 0
+    for (let line = 0; line < sourceLines.length; line++) {
+      const lineEnd = pos + sourceLines[line].length
+      if (offset <= lineEnd) return line
+      pos = lineEnd + 1
+    }
+    return sourceLines.length - 1
+  }
+
+  // 커서가 속한 가장 안쪽 접기 구간
+  const foldRangeAtCaret = () => {
+    const el = textareaRef.current
+    if (!el) return null
+    const line = sourceLineAtOffset(viewToSource[el.selectionStart ?? 0] ?? 0)
+    let best: UnFoldRange | null = null
+    for (const range of foldRanges) {
+      if (range.startLine > line || range.endLine < line) continue
+      if (!best || range.endLine - range.startLine < best.endLine - best.startLine) best = range
+    }
+    return best
+  }
+
+  const foldAtCaret = (wantFold: boolean) => {
+    const range = foldRangeAtCaret()
+    if (!range) return
+    if (foldedKeys.has(range.key) === wantFold) return
+    toggleFold(range)
+    pendingFoldCaretRef.current = range.startLine
+  }
+
+  // 접기 토글 후 새 표시 텍스트가 적용되면 선언 줄 시작으로 커서를 되돌린다
+  useLayoutEffect(() => {
+    const line = pendingFoldCaretRef.current
+    if (line === null) return
+    pendingFoldCaretRef.current = null
+    const el = textareaRef.current
+    if (!el) return
+    let offset = 0
+    for (let i = 0; i < line; i++) offset += sourceLines[i].length + 1
+    const viewOffset = sourceToView[offset] ?? 0
+    el.focus()
+    el.selectionStart = el.selectionEnd = viewOffset
+  }, [view, sourceLines, sourceToView])
+
   // 펼친 줄의 wrappers가 그대로 보이도록 편집 후 커서를 표시용 텍스트 기준으로 복원
   useLayoutEffect(() => {
     const cursor = pendingViewCursorRef.current
@@ -611,6 +659,28 @@ function SourceEditor({
       return
     }
 
+    // 코드 접기 단축키 (VS Code 계열): Alt+Z 토글, Ctrl+Shift+[ / ] 접기·펼치기
+    if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'z') {
+      event.preventDefault()
+      foldAtCaret(!foldedKeys.has(foldRangeAtCaret()?.key ?? ''))
+      return
+    }
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === '[' || event.key === ']')) {
+      event.preventDefault()
+      foldAtCaret(event.key === '[')
+      return
+    }
+    if ((event.ctrlKey || event.metaKey) && event.altKey && event.key.toLowerCase() === 'l') {
+      event.preventDefault()
+      setFoldedKeys(new Set(foldRanges.map((range) => range.key)))
+      return
+    }
+    if ((event.ctrlKey || event.metaKey) && event.altKey && event.key.toLowerCase() === 'j') {
+      event.preventDefault()
+      setFoldedKeys(new Set())
+      return
+    }
+
     // 자동완성이 열려 있을 때 키 처리
     if (acVisible && acCandidates.length > 0) {
       if (event.key === 'ArrowDown') {
@@ -725,7 +795,7 @@ function SourceEditor({
                     type="button"
                     className="fold-toggle"
                     data-folded={folded}
-                    title={folded ? '펼치기' : '접기'}
+                    title={folded ? '펼치기 (Alt+Z · Ctrl+Shift+])' : '접기 (Alt+Z · Ctrl+Shift+[)'}
                     aria-label={`${range.label} ${folded ? '펼치기' : '접기'}`}
                     onClick={() => toggleFold(range)}
                   >
