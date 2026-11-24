@@ -77,7 +77,27 @@ export function getLspHoverDoc(
   if (moduleDoc) return { label: name, doc: moduleDoc };
   const builtin = lspStub("builtins")?.functions.find((entry) => entry.name === name);
   if (builtin) return { label: builtin.label, doc: builtin.doc };
-  return null;
+  return getUserDefHover(source, name);
+}
+
+/** lsp.rs 의 def_hover_markdown: 선언 위 줄 단위 # 주석 + 시그니처 라벨 */
+function getUserDefHover(source: string, name: string): { label: string; doc: string } | null {
+  const lines = source.split("\n");
+  const index = lines.findIndex((line) => new RegExp(`^\\s*(fn|class)\\s+${name}\\b`).test(line));
+  if (index < 0) return null;
+  const collected: string[] = [];
+  for (let i = index - 1; i >= 0; i--) {
+    const text = lines[i].trim();
+    if (!text.startsWith("#")) break;
+    collected.push(text.replace(/^#+/, "").trim());
+  }
+  collected.reverse();
+  const doc = collected.join("\n");
+  if (lines[index].trim().startsWith("class")) return { label: name, doc };
+  const signature = extractUnFunctionSignatures(source)[name];
+  if (!signature) return { label: name, doc };
+  const returnPart = signature.returnType && signature.returnType !== "any" ? ` -> ${signature.returnType}` : "";
+  return { label: `${name}(${signature.parameters.join(", ")})${returnPart}`, doc };
 }
 
 export const PLAYGROUND_DEFAULT_SOURCE = `use io
@@ -831,7 +851,7 @@ export function getUnSignatureHelp(
         label: `${functionName}(${userSignature.parameters.join(", ")})${returnPart}`,
         kind: "user",
         module: null,
-        description: "defined in this file",
+        description: getUserDefHover(source, functionName)?.doc || "defined in this file",
         example: "",
         returnType: userSignature.returnType,
         parameters: userSignature.parameters.map((name) => ({
