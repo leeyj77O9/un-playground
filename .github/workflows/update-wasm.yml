@@ -159,6 +159,15 @@ jobs:
         working-directory: un/rust
         run: node playground/smoke.mjs
 
+      - name: Regenerate LSP stubs
+        if: steps.check.outputs.changed == 'true'
+        shell: bash
+        # web/src/lib/lspStubs.ts mirrors the `docs` module in un/rust/src/lsp.rs,
+        # which reads its hover docs and signature labels from rust/lsp-stubs/*.un.
+        # Rebuild it from the same checkout so the playground shows the same text
+        # the real LSP shows.
+        run: node un-playground/web/scripts/gen-lsp-stubs.mjs un/rust/lsp-stubs
+
       - name: Copy playground.wasm
         if: steps.check.outputs.changed == 'true'
         shell: bash
@@ -185,7 +194,7 @@ jobs:
           echo "$UN_SHA" > .wasm-source-sha
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A web/public/playground.wasm .wasm-source-sha
+          git add -A web/public/playground.wasm .wasm-source-sha web/src/lib/lspStubs.ts
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0

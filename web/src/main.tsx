@@ -26,6 +26,7 @@ import {
   getUnAutocompleteCandidates,
   getUnAutocompleteRange,
   getLspSignature,
+  getLspHoverDoc,
   getUnHoverType,
   isUnInsideComment,
   isUnInsideString,
@@ -48,6 +49,7 @@ type InputInsertion = { at: number; value: string; kind: 'input' | 'output' }
 type HoverInfo =
   | { kind: 'error'; message: string; line: number; column: number; top: number; left: number }
   | { kind: 'type'; word: string; type: string; top: number; left: number }
+  | { kind: 'doc'; label: string; doc: string; top: number; left: number }
   | { kind: 'signature'; signature: UnSignatureHelp; top: number; left: number }
 
 type CompletionKind = UnAutocompleteCandidate['kind']
@@ -167,39 +169,51 @@ function CompletionKindIcon({ kind }: { kind: CompletionKind }) {
   }
 }
 
-function SignatureLabel({ help }: { help: UnSignatureHelp }) {
-  const open = help.label.indexOf('(')
-  const close = help.label.lastIndexOf(')')
-  if (open < 0 || close <= open) return <>{help.label}</>
-  const parameters = help.label.slice(open + 1, close).split(/,\s*/)
+function SignatureLabel({ label, activeIndex = -1 }: { label: string; activeIndex?: number }) {
+  const open = label.indexOf('(')
+  const close = label.lastIndexOf(')')
+  if (open < 0 || close <= open) return <>{label}</>
+  const parameters = label.slice(open + 1, close).split(/,\s*/)
   return (
     <>
-      {help.label.slice(0, open + 1)}
+      {label.slice(0, open + 1)}
       {parameters.map((parameter, index) => (
         <span key={`${parameter}-${index}`}>
           {index > 0 && <span className="signature-help-sep">, </span>}
-          <span className={index === help.activeIndex ? 'signature-help-param active' : 'signature-help-param'}>
+          <span className={index === activeIndex ? 'signature-help-param active' : 'signature-help-param'}>
             {parameter}
           </span>
         </span>
       ))}
-      {help.label.slice(close)}
+      {label.slice(close)}
     </>
   )
 }
 
 // lsp.rs 의 hover markdown 과 같은 순서: 문서 → ```un 시그니처 코드 블록
-function SignatureHelpBody({ help, docFirst = false }: { help: UnSignatureHelp; docFirst?: boolean }) {
-  const doc = help.description && (
-    <div className={`signature-help-description${docFirst ? ' doc-first' : ''}`}>{help.description}</div>
+function SignatureHelpBody({
+  label,
+  doc,
+  example,
+  activeIndex = -1,
+  docFirst = false,
+}: {
+  label: string
+  doc: string
+  example?: string
+  activeIndex?: number
+  docFirst?: boolean
+}) {
+  const docBlock = doc && (
+    <div className={`signature-help-description${docFirst ? ' doc-first' : ''}`}>{doc}</div>
   )
   const signature = (
     <div className="signature-help-signature signature-help-label">
-      <SignatureLabel help={help} />
+      <SignatureLabel label={label} activeIndex={activeIndex} />
     </div>
   )
-  const example = help.example && <code className="signature-help-example">{help.example}</code>
-  return docFirst ? <>{doc}{signature}{example}</> : <>{signature}{doc}{example}</>
+  const exampleBlock = example && <code className="signature-help-example">{example}</code>
+  return docFirst ? <>{docBlock}{signature}{exampleBlock}</> : <>{signature}{docBlock}{exampleBlock}</>
 }
 
 /* ── Source Editor ──────────────────────────────────────────────────── */
@@ -570,7 +584,18 @@ function SourceEditor({
       }
     }
 
-    // 4) 그 밖의 식별자는 WASM 추론 결과가 없으면 JS 추론으로 타입 표시
+    // 4) 모듈·빌트인·네이티브 멤버는 lsp.rs hover 와 같은 문서 + 시그니처 라벨
+    const qualifier = line[identStart - 1] === '.'
+      ? line.slice(0, identStart).match(/[A-Za-z_][A-Za-z0-9_]*\s*$/)?.[0] ?? null
+      : null
+    const qualifierType = qualifier ? getUnHoverType(view, qualifier, nativeFunctions, checkResult) : null
+    const doc = getLspHoverDoc(value, qualifier ?? null, name, qualifierType ?? null)
+    if (doc) {
+      setHover({ kind: 'doc', label: doc.label, doc: doc.doc, top, left })
+      return
+    }
+
+    // 5) 그 밖의 식별자는 WASM 추론 결과가 없으면 JS 추론으로 타입 표시
     const type = getUnHoverType(view, name, nativeFunctions, checkResult)
     setHover(type ? { kind: 'type', word: name, type, top, left } : null)
   }
@@ -759,7 +784,21 @@ function SourceEditor({
             role="tooltip"
             style={{ top: hover.top, left: hover.left }}
           >
-            <SignatureHelpBody help={hover.signature} docFirst />
+            <SignatureHelpBody
+              label={hover.signature.label}
+              doc={hover.signature.description}
+              example={hover.signature.example}
+              activeIndex={hover.signature.activeIndex}
+              docFirst
+            />
+          </div>
+        ) : hover && hover.kind === 'doc' ? (
+          <div
+            className="signature-help"
+            role="tooltip"
+            style={{ top: hover.top, left: hover.left }}
+          >
+            <SignatureHelpBody label={hover.label} doc={hover.doc} docFirst />
           </div>
         ) : hover && (
           <div
@@ -787,7 +826,12 @@ function SourceEditor({
             role="tooltip"
             style={{ top: sigPos.top, left: sigPos.left }}
           >
-            <SignatureHelpBody help={sigHelp} />
+            <SignatureHelpBody
+              label={sigHelp.label}
+              doc={sigHelp.description}
+              example={sigHelp.example}
+              activeIndex={sigHelp.activeIndex}
+            />
           </div>
         )}
         {acVisible && acCandidates.length > 0 && (

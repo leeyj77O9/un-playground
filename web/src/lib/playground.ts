@@ -56,6 +56,30 @@ export function getLspModuleDoc(module: string): string | null {
   return lspStub(module)?.doc || null;
 }
 
+/** lsp.rs 의 hover markdown 처럼 문서 + 시그니처 라벨 (모듈 / 네이티브 멤버 / 빌트인) */
+export function getLspHoverDoc(
+  source: string,
+  qualifier: string | null,
+  name: string,
+  qualifierType: string | null = null,
+): { label: string; doc: string } | null {
+  if (qualifier) {
+    // docs::function(module, word) → docs::function("members", word) → docs::auto(...)
+    const module = qualifierType ?? (getUsedNativeModuleMap(source).get(qualifier) ?? qualifier);
+    const stub = getLspSignature(module, name, true);
+    if (stub) return { label: `${qualifier}.${stub.label}`, doc: stub.doc };
+    const doc = qualifierType
+      ? `Method \`${name}\` of the \`${qualifierType}\` type.`
+      : `Native function \`${name}\` from the \`${module}\` module.`;
+    return { label: `${qualifier}.${name}()`, doc };
+  }
+  const moduleDoc = getLspModuleDoc(name);
+  if (moduleDoc) return { label: name, doc: moduleDoc };
+  const builtin = lspStub("builtins")?.functions.find((entry) => entry.name === name);
+  if (builtin) return { label: builtin.label, doc: builtin.doc };
+  return null;
+}
+
 export const PLAYGROUND_DEFAULT_SOURCE = `use io
 io.write("Hello, World!")`;
 export const MAX_PLAYGROUND_SOURCE_CHARS = 12_000;
