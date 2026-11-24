@@ -107,13 +107,51 @@ body {
 .code-gutter pre {
   margin: 0;
   padding: 18px 12px 18px 0;
-  text-align: right;
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.75;
   color: #b6aa92;
   user-select: none;
   will-change: transform;
+}
+
+.gutter-line {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  height: 1.75em;
+}
+
+.fold-toggle {
+  flex: 0 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #a4987f;
+  cursor: pointer;
+  visibility: hidden;
+}
+.gutter-line:hover .fold-toggle,
+.fold-toggle[data-folded="true"] { visibility: visible; }
+.fold-toggle:hover { background: var(--paper-2); color: #b4552d; }
+.fold-toggle svg { width: 10px; height: 10px; }
+
+.fold-hint {
+  position: absolute;
+  z-index: 1;
+  color: #b4552d;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.75;
+  opacity: 0.75;
+  pointer-events: none;
 }
 
 .code-surface {
@@ -282,26 +320,42 @@ body {
 }
 
 /* ── Scrollbars ──────────────────────────────────────────────────────── */
-.terminal-body { scrollbar-width: thin; scrollbar-color: #3a352b transparent; }
-.code-input { scrollbar-width: thin; scrollbar-color: #d3c7ad transparent; }
+/* 얇고 둥근 손잡이 + 배경에 살짝 스며드는 트랙 */
+.terminal-body,
+.code-input,
+.autocomplete-dropdown { scrollbar-width: thin; }
+
+.terminal-body { scrollbar-color: #4a4438 rgba(236, 229, 213, 0.06); }
+.code-input,
+.autocomplete-dropdown { scrollbar-color: #cbbfa6 rgba(36, 33, 27, 0.05); }
 
 .terminal-body::-webkit-scrollbar,
-.code-input::-webkit-scrollbar { width: 10px; height: 10px; }
+.code-input::-webkit-scrollbar,
+.autocomplete-dropdown::-webkit-scrollbar { width: 9px; height: 9px; }
 
 .terminal-body::-webkit-scrollbar-track,
-.code-input::-webkit-scrollbar-track { background: transparent; }
+.code-input::-webkit-scrollbar-track,
+.autocomplete-dropdown::-webkit-scrollbar-track { background: transparent; }
 
 .terminal-body::-webkit-scrollbar-thumb {
-  border: 3px solid var(--terminal);
+  border: 2px solid var(--terminal);
   border-radius: 999px;
-  background: #3a352b;
+  background: #4a4438;
 }
+.terminal-body::-webkit-scrollbar-thumb:hover { background: #a9c9a1; }
 
-.code-input::-webkit-scrollbar-thumb {
-  border: 3px solid var(--paper);
+.code-input::-webkit-scrollbar-thumb,
+.autocomplete-dropdown::-webkit-scrollbar-thumb {
+  border: 2px solid var(--paper);
   border-radius: 999px;
-  background: #d3c7ad;
+  background: #cbbfa6;
 }
+.code-input::-webkit-scrollbar-thumb:hover,
+.autocomplete-dropdown::-webkit-scrollbar-thumb:hover { background: #b4552d; }
+
+.terminal-body::-webkit-scrollbar-corner,
+.code-input::-webkit-scrollbar-corner,
+.autocomplete-dropdown::-webkit-scrollbar-corner { background: transparent; }
 
 /* ── Motion / responsive ─────────────────────────────────────────────── */
 @keyframes spin {
@@ -339,12 +393,12 @@ body {
   padding: 4px;
   list-style: none;
   min-width: 240px;
-  max-width: 360px;
+  max-width: 560px;
   max-height: 224px;
   overflow-y: auto;
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   box-shadow: 0 12px 30px rgba(36, 33, 27, 0.16);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -353,10 +407,10 @@ body {
 .autocomplete-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   height: 26px;
   padding: 0 8px;
-  border-radius: 5px;
+  border-radius: 3px;
   cursor: pointer;
   color: var(--ink);
   white-space: nowrap;
@@ -369,24 +423,42 @@ body {
 }
 
 .autocomplete-item .ac-kind {
-  flex: 0 0 30px;
-  font-size: 10px;
-  font-weight: 700;
+  flex: 0 0 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #b4552d;
-  letter-spacing: 0.04em;
 }
 
+.autocomplete-item .ac-kind svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.autocomplete-item[data-kind="keyword"] .ac-kind  { color: #9a3b5e; }
+.autocomplete-item[data-kind="function"] .ac-kind { color: #2c6e8a; }
+.autocomplete-item[data-kind="method"] .ac-kind    { color: #7a5aa0; }
+.autocomplete-item[data-kind="property"] .ac-kind  { color: #2e7d6a; }
+.autocomplete-item[data-kind="variable"] .ac-kind  { color: #3b5b87; }
+.autocomplete-item[data-kind="argument"] .ac-kind  { color: #b4552d; }
+
 .autocomplete-item .ac-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 600;
 }
 
 .autocomplete-item .ac-detail {
   margin-left: auto;
-  max-width: 220px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #8a7f6c;
+  color: #9c917c;
+  font-size: 11px;
   font-weight: 400;
+  opacity: 0.85;
 }
 
 /* ── Signature Help ───────────────────────────────────────────────── */
@@ -410,6 +482,16 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* lsp.rs hover markdown의 ```un 코드 블록에 대응 */
+.signature-help-label {
+  padding: 5px 7px;
+  border-radius: 4px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
 }
 
 .signature-help-name {
@@ -448,6 +530,11 @@ body {
   font-size: 12px;
   line-height: 1.45;
   color: #5c554a;
+}
+
+.signature-help-description.doc-first {
+  margin-top: 0;
+  margin-bottom: 5px;
 }
 
 .signature-help-example {

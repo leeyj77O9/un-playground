@@ -1,4 +1,60 @@
 import type { UnCheckResult } from './wasmClient'
+import { LSP_STUB_TEXT } from './lspStubs'
+
+type LspStubFunction = { name: string; label: string; doc: string };
+type LspStubModule = { doc: string; functions: LspStubFunction[] };
+const lspStubCache = new Map<string, LspStubModule>();
+
+// lsp.rs 의 docs::parse 와 동일한 규칙 (#! 모듈 문서, # 함수 문서, 그 다음 줄이 라벨)
+function parseLspStub(text: string): LspStubModule {
+  let doc = "";
+  const pending: string[] = [];
+  const functions: LspStubFunction[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.startsWith("#!")) {
+      doc = line.slice(2).trim();
+    } else if (line.startsWith("#")) {
+      pending.push(line.slice(1).trim());
+    } else if (line === "") {
+      continue;
+    } else {
+      const name = line.split("(")[0]?.trim() ?? "";
+      if (name) functions.push({ name, label: line, doc: pending.join("\n") });
+      pending.length = 0;
+    }
+  }
+  return { doc, functions };
+}
+
+function lspStub(module: string): LspStubModule | null {
+  if (!lspStubCache.has(module)) {
+    const text = LSP_STUB_TEXT[module];
+    if (text === undefined) return null;
+    lspStubCache.set(module, parseLspStub(text));
+  }
+  return lspStubCache.get(module) ?? null;
+}
+
+/** lsp.rs 의 docs::signature / docs::function 과 같은 우선순위로 스텁 조회 */
+export function getLspSignature(
+  module: string | null,
+  name: string,
+  includeMembers = false,
+): { label: string; doc: string } | null {
+  const modules = [module, ...(includeMembers ? ["members"] : []), "builtins"].filter(
+    (item): item is string => Boolean(item),
+  );
+  for (const key of modules) {
+    const found = lspStub(key)?.functions.find((entry) => entry.name === name);
+    if (found) return { label: found.label, doc: found.doc };
+  }
+  return null;
+}
+
+export function getLspModuleDoc(module: string): string | null {
+  return lspStub(module)?.doc || null;
+}
 
 export const PLAYGROUND_DEFAULT_SOURCE = `use io
 io.write("Hello, World!")`;
@@ -28,9 +84,203 @@ export function restoreTypeCheckPreference(saved: string | null): boolean {
   return saved !== 'off';
 }
 
-export function getEditorLineNumbers(source: string): string {
-  const lineCount = source.split("\n").length;
-  return Array.from({ length: lineCount }, (_, index) => index + 1).join("\n");
+export type UnFoldRange = {
+  startLine: number;
+  endLine: number;
+  kind: "function" | "class";
+  label: string;
+  key: string;
+};
+
+/** fn/class 선언 본문의 접기 구간. 중괄호 블록과 들여쓰기 블록을 모두 지원한다. */
+export function getUnFoldRanges(source: string): UnFoldRange[] {
+  const lines = source.split("\n");
+  const lineStarts: number[] = [];
+  let running = 0;
+  for (const line of lines) {
+    lineStarts.push(running);
+    running += line.length + 1;
+  }
+
+  // 0: code, 1: line comment, 2: block comment, 3: string
+  const masked = new Uint8Array(source.length);
+  let state = 0;
+  let quote = "";
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (state === 1) {
+      masked[index] = 1;
+      if (char === "\n") state = 0;
+      continue;
+    }
+    if (state === 2) {
+      masked[index] = 1;
+      if (char === "*" && next === "/") {
+        masked[index + 1] = 1;
+        index++;
+        state = 0;
+      }
+      continue;
+    }
+    if (state === 3) {
+      masked[index] = 1;
+      if (char === "\\") {
+        if (index + 1 < source.length) masked[index + 1] = 1;
+        index++;
+        continue;
+      }
+      if (char === quote) state = 0;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      masked[index] = 1;
+      masked[index + 1] = 1;
+      index++;
+      state = 1;
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      masked[index] = 1;
+      masked[index + 1] = 1;
+      index++;
+      state = 2;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      masked[index] = 1;
+      quote = char;
+      state = 3;
+    }
+  }
+
+  const ranges: UnFoldRange[] = [];
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const base = lineStarts[lineIndex];
+    const declaration = /^\s*(class|fn)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(line);
+    if (!declaration) continue;
+    const indent = declaration[0].search(/\S/);
+    if (masked[base + indent]) continue;
+    const kind = declaration[1] === "class" ? "class" : "function";
+    const label = declaration[2];
+
+    let endLine = -1;
+
+    // 1) 중괄호 스타일: 선언 줄의 { 짝을 찾는다
+    let brace = -1;
+    for (let index = base + indent + declaration[0].trim().length; index < base + line.length; index++) {
+      if (masked[index]) continue;
+      if (source[index] === "{") { brace = index; break; }
+    }
+    if (brace >= 0) {
+      let depth = 0;
+      let endOffset = -1;
+      for (let index = brace; index < source.length; index++) {
+        if (masked[index]) continue;
+        if (source[index] === "{") depth++;
+        else if (source[index] === "}") {
+          depth--;
+          if (depth === 0) { endOffset = index; break; }
+        }
+      }
+      if (endOffset >= 0) {
+        let lineNo = 0;
+        while (lineNo + 1 < lineStarts.length && lineStarts[lineNo + 1] <= endOffset) lineNo++;
+        endLine = lineNo;
+      }
+    }
+
+    // 2) 들여쓰기 스타일: 선언보다 깊게 들여쓰인 줄들이 본문
+    if (endLine < 0) {
+      for (let next = lineIndex + 1; next < lines.length; next++) {
+        const bodyLine = lines[next];
+        if (bodyLine.trim() === "") continue;
+        if (bodyLine.search(/\S/) <= indent) break;
+        endLine = next;
+      }
+    }
+
+    if (endLine <= lineIndex) continue;
+    ranges.push({
+      startLine: lineIndex,
+      endLine,
+      kind,
+      label,
+      key: `${kind}:${label}:${line.trim()}`,
+    });
+  }
+  return ranges;
+}
+
+export type UnFoldView = {
+  view: string;
+  viewToSource: number[];
+  sourceToView: Int32Array;
+  visibleSourceLines: number[];
+};
+
+/** 접힌 줄을 제외한 표시용 텍스트와 원본/표시 위치 매핑을 만든다. */
+export function buildUnFoldedView(source: string, hiddenLines: ReadonlySet<number>): UnFoldView {
+  const lines = source.split("\n");
+  let view = "";
+  const viewToSource: number[] = [];
+  const sourceToView = new Int32Array(source.length + 1);
+  const visibleSourceLines: number[] = [];
+  let sourceOffset = 0;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const line = lines[lineIndex];
+    const hidden = hiddenLines.has(lineIndex);
+    for (let column = 0; column < line.length; column++) {
+      const sourceIndex = sourceOffset + column;
+      if (!hidden) {
+        viewToSource[view.length] = sourceIndex;
+        view += line[column];
+      }
+      sourceToView[sourceIndex] = view.length;
+    }
+    if (lineIndex < lines.length - 1) {
+      const newlineIndex = sourceOffset + line.length;
+      if (!hidden) {
+        viewToSource[view.length] = newlineIndex;
+        view += "\n";
+        visibleSourceLines.push(lineIndex);
+      }
+      sourceToView[newlineIndex] = view.length;
+    } else if (!hidden) {
+      visibleSourceLines.push(lineIndex);
+    }
+    sourceOffset += line.length + 1;
+  }
+  viewToSource[view.length] = source.length;
+  sourceToView[source.length] = view.length;
+  return { view, viewToSource, sourceToView, visibleSourceLines };
+}
+
+/** 표시용 텍스트에서 생긴 편집을 원본 소스의 해당 위치에 반영한다. */
+export function applyUnFoldedViewChange(
+  oldView: string,
+  newView: string,
+  viewToSource: readonly number[],
+  source: string,
+): string {
+  // 보이는 텍스트를 모두 지우면 접힌 본문까지 포함해 전체 삭제로 처리
+  if (newView.length === 0) return "";
+
+  const minLength = Math.min(oldView.length, newView.length);
+  let prefix = 0;
+  while (prefix < minLength && oldView[prefix] === newView[prefix]) prefix++;
+  let suffix = 0;
+  while (
+    suffix < minLength - prefix &&
+    oldView[oldView.length - 1 - suffix] === newView[newView.length - 1 - suffix]
+  ) suffix++;
+
+  const sourceStart = viewToSource[prefix] ?? 0;
+  const sourceEnd = viewToSource[oldView.length - suffix] ?? source.length;
+  const inserted = newView.slice(prefix, newView.length - suffix);
+  return source.slice(0, sourceStart) + inserted + source.slice(sourceEnd);
 }
 
 type HighlightTokenType = "plain" | "keyword" | "function" | "variable" | "string" | "number" | "comment" | "type" | "module" | "bracket" | "decorator";
@@ -188,7 +438,7 @@ export type UnNativeFunctionMetadata = {
 
 const IDENTIFIER_CHARACTER = /[A-Za-z0-9_]/;
 const IDENTIFIER_START = /^[A-Za-z_][A-Za-z0-9_]*$/;
-const FUNCTION_DECLARATION_PATTERN = /^\s*fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?::\s*([A-Za-z_][A-Za-z0-9_]*))?/gm;
+const FUNCTION_DECLARATION_PATTERN = /^\s*fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:(?::|->)[ \t]*([A-Za-z_][A-Za-z0-9_<>\[\], \t|]*))?/gm;
 function addUnSourceSymbol(symbols: Map<string, UnAutocompleteKind>, label: string, kind: UnAutocompleteKind) {
   if (!IDENTIFIER_START.test(label) || UN_KEYWORDS.has(label)) return;
   symbols.set(label, kind);
@@ -302,11 +552,11 @@ function extractUnFunctionSignatures(source: string): Record<string, UnFunctionS
     const parameters = (match[2] ?? "")
       .split(",")
       .map((parameter) => parameter.trim().replace(/^\*{0,2}/, "").split("=")[0]?.trim() ?? "")
-      .filter((parameter) => IDENTIFIER_START.test(parameter));
+      .filter((parameter) => /^[A-Za-z_][A-Za-z0-9_]*/.test(parameter));
 
     signatures[functionName] = {
       parameters,
-      returnType: match[3] ?? "any",
+      returnType: match[3]?.trim() || "any",
     };
   }
 
@@ -338,6 +588,32 @@ export function isUnInsideString(source: string, cursor: number): boolean {
     if (character === '"' || character === "'") quote = character;
   }
   return quote !== null;
+}
+
+// 케어가 # 주석 내부인지 — 문자열 안의 # 는 주석으로 세지 않는다
+export function isUnInsideComment(source: string, cursor: number): boolean {
+  const end = Math.max(0, Math.min(cursor, source.length));
+  let index = 0;
+  while (index < end) {
+    const character = source[index];
+    if (character === "#") {
+      const newline = source.indexOf("\n", index);
+      return newline === -1 || newline >= end;
+    }
+    if (character === '"' || character === "'" || character === "`") {
+      const triple = source.slice(index, index + 3) === character.repeat(3);
+      const quote = triple ? character.repeat(3) : character;
+      index += quote.length;
+      while (index < source.length) {
+        if (source[index] === "\\") { index += 2; continue; }
+        if (source.slice(index, index + quote.length) === quote) { index += quote.length; break; }
+        index++;
+      }
+      continue;
+    }
+    index++;
+  }
+  return false;
 }
 
 // 문자열 리터럴(escape 포함) 구간의 마스크 — 괄호/콤마 계산에서 제외하기 위함
@@ -431,6 +707,8 @@ function getUnSignatureHelpContext(source: string, cursor: number): UnSignatureH
 
 export type UnSignatureHelp = {
   displayName: string;
+  /** lsp.rs / lsp-stubs style signature label */
+  label: string;
   kind: "native" | "user";
   module: string | null;
   description: string;
@@ -497,11 +775,20 @@ export function getUnSignatureHelp(
     }
 
     if (entry) {
+      const stub = getLspSignature(
+        entry.module === "builtin" ? "builtins" : entry.module,
+        functionName,
+        Boolean(qualifier),
+      );
+      const label = stub?.label ?? `${functionName}(${entry.parameters
+        .map((parameter) => `${parameter.positional ? "..." : ""}${parameter.name}${parameter.optional ? "?" : ""}: ${parameter.expectedType}`)
+        .join(", ")})`;
       return {
         displayName,
+        label,
         kind: "native",
         module: entry.module,
-        description: entry.description,
+        description: stub?.doc || entry.description,
         example: entry.example,
         returnType: entry.returnType,
         parameters: entry.parameters,
@@ -512,8 +799,12 @@ export function getUnSignatureHelp(
     // 4) user-defined function
     const userSignature = extractUnFunctionSignatures(source)[functionName];
     if (userSignature) {
+      const returnPart = userSignature.returnType && userSignature.returnType !== "any"
+        ? ` -> ${userSignature.returnType}`
+        : "";
       return {
         displayName,
+        label: `${functionName}(${userSignature.parameters.join(", ")})${returnPart}`,
         kind: "user",
         module: null,
         description: "defined in this file",
@@ -596,7 +887,6 @@ export function getUnAutocompleteCandidates(
   query: string,
   nativeFunctions: readonly UnNativeFunctionMetadata[] = [],
   checkResult: UnCheckResult | null = null,
-  limit = 8,
 ): UnAutocompleteCandidate[] {
   const normalizedQuery = query.toLowerCase();
   if (!normalizedQuery) {
@@ -688,7 +978,7 @@ export function getUnAutocompleteCandidates(
   addCandidates(extractUnClassNames(source), "variable", "class");
   addCandidates(Array.from(UN_COMPLETION_KEYWORDS), "keyword", "keyword");
 
-  return Array.from(candidates.values()).slice(0, Math.max(0, limit));
+  return Array.from(candidates.values());
 }
 
 function findUnLastTopLevelDot(text: string): number {
@@ -862,11 +1152,89 @@ function getUnExpressionType(expression: string, symbols: Readonly<Record<string
   return currentType;
 }
 
+/** 소스에 명시적으로 적힌 타입 (int | str 같은 합타입도 그대로 유지) */
+function getUnDeclaredType(source: string, name: string): string | null {
+  const clean = (value?: string) => value?.replace(/\s+/g, " ").trim() ?? null;
+
+  let variable = clean(
+    source.match(new RegExp(`^\\s*(?:using\\s+)?${name}\\s*:\\s*([A-Za-z_][A-Za-z0-9_<>\\[\\],\\s|]*?)\\s*=(?!=)`, "m"))?.[1],
+  )
+  if (!variable) {
+    variable = clean(
+      source.match(new RegExp(`^\\s*(?:using\\s+)?${name}\\s*:\\s*([A-Za-z_][A-Za-z0-9_<>\\[\\],\\s|]*?)\\s*$`, "m"))?.[1],
+    )
+  }
+  if (variable) return variable
+
+  for (const match of source.matchAll(/\bfn\s+[A-Za-z_][A-Za-z0-9_]*\s*\(([^)]*)\)/g)) {
+    for (const parameter of (match[1] ?? "").split(",")) {
+      const declared = parameter.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_<>\[\],\s|]*?)\s*$/)
+      if (declared?.[1] !== name) continue
+      const type = clean(declared[2])
+      if (type) return type
+    }
+  }
+
+  const arrow = clean(
+    source.match(new RegExp(`^\\s*fn\\s+${name}\\s*\\([^)]*\\)\\s*(?:->|:)\\s*([A-Za-z_][A-Za-z0-9_<>\\[\\],\\s|]*?)\\s*$`, "m"))?.[1],
+  )
+  if (arrow) return arrow
+
+  const alias = clean(
+    source.match(new RegExp(`^\\s*type\\s+${name}\\s*=\\s*([A-Za-z_][A-Za-z0-9_<>\\[\\],\\s|]*?)\\s*$`, "m"))?.[1],
+  )
+  if (alias) return alias
+
+  if (extractUnClassNames(source).includes(name)) return name
+  return null
+}
+
+/** 호버용 타입: 명시적 선언을 우선하고, 없으면 WASM/JS 추론을 사용한다. */
+export function getUnHoverType(
+  source: string,
+  name: string,
+  nativeFunctions: readonly UnNativeFunctionMetadata[] = [],
+  checkResult: UnCheckResult | null = null,
+): string | null {
+  const declared = getUnDeclaredType(source, name)
+  if (declared) return declared
+
+  const checked =
+    checkResult?.vars.find(([item]) => item === name)?.[1] ??
+    checkResult?.fnReturns.find(([item]) => item === name)?.[1] ??
+    null
+  if (checked) return checked
+
+  const inferred = getUnInferredSymbolTypes(source, nativeFunctions)
+  if (inferred[name]) return inferred[name]
+
+  for (const match of source.matchAll(/\bfn\s+[A-Za-z_][A-Za-z0-9_]*\s*\(([^)]*)\)/g)) {
+    for (const parameter of (match[1] ?? "").split(",")) {
+      const declared = parameter.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([A-Za-z_][A-Za-z0-9_<>\[\],\s|]*?)\s*$/)
+      if (declared?.[1] === name && declared[2]) return declared[2]
+    }
+  }
+
+  const returnType = extractUnFunctionReturnTypes(source)[name]
+  if (returnType && returnType !== "any") return returnType
+
+  // Un은 `fn f(): T` 대신 `fn f() -> T` 형태로 반환형을 쓴다
+  const arrowReturn = source.match(new RegExp(`^\\s*fn\\s+${name}\\s*\\([^)]*\\)\\s*->\\s*([A-Za-z_][A-Za-z0-9_<>\\[\\],\\s|]*?)\\s*$`, "m"))?.[1]
+  if (arrowReturn) return arrowReturn
+  if (returnType) return returnType
+
+  const alias = source.match(new RegExp(`^\\s*type\\s+${name}\\s*=\\s*([A-Za-z_][A-Za-z0-9_<>\\[\\],\\s|]*?)\\s*$`, "m"))?.[1]
+  if (alias) return alias
+
+  if (extractUnClassNames(source).includes(name)) return name
+  return null
+}
+
 function getUnInferredSymbolTypes(source: string, nativeFunctions: readonly UnNativeFunctionMetadata[]): Record<string, string> {
   const symbols: Record<string, string> = {};
   const declaredReturnTypes = extractUnFunctionReturnTypes(source);
   const classNames = extractUnClassNames(source)
-  const assignments = Array.from(source.matchAll(/^\s*(?:using\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[A-Za-z_][A-Za-z0-9_<>,\s|]*\s*)?=\s*([^\n#]+)/gm));
+  const assignments = Array.from(source.matchAll(/^\s*(?:using\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*[A-Za-z_][A-Za-z0-9_<>\[\],\s|]*\s*)?=\s*([^\n#]+)/gm));
 
   for (const assignment of assignments) {
     const name = assignment[1] ?? "";
@@ -890,9 +1258,8 @@ export function getUnObjectMethodCandidates(
   cursor: number,
   nativeFunctions: readonly UnNativeFunctionMetadata[] = [],
   checkResult: UnCheckResult | null = null,
-  limit = 8,
 ): UnAutocompleteCandidate[] | null {
-  if (isUnInsideString(source, cursor)) return null;
+  if (isUnInsideString(source, cursor) || isUnInsideComment(source, cursor)) return null;
 
   const range = getUnAutocompleteRange(source, cursor);
   const precedingSource = source.slice(0, range.start);
@@ -927,7 +1294,6 @@ export function getUnObjectMethodCandidates(
     const targetModule = usedMap.get(receiverExpression)!;
     const moduleCandidates = nativeFunctions
       .filter((entry) => entry.module === targetModule && entry.name.toLowerCase().startsWith(query))
-      .slice(0, Math.max(0, limit))
       .map((entry) => ({ label: entry.name, kind: "function" as const, detail: `native ${entry.module} function` }));
     return moduleCandidates;
   }
@@ -949,7 +1315,6 @@ export function getUnObjectMethodCandidates(
   // 1) 네이티브 타입 메서드
   const nativeCandidates = nativeFunctions
     .filter((entry) => entry.module === `type:${receiverType}` && entry.name.toLowerCase().startsWith(query))
-    .slice(0, Math.max(0, limit))
     .map((entry) => ({ label: entry.name, kind: "method" as const, detail: `native ${entry.module} method` }));
   if (nativeCandidates.length > 0) return nativeCandidates;
 
@@ -959,7 +1324,6 @@ export function getUnObjectMethodCandidates(
   if (userMethods) {
     return userMethods
       .filter((m) => m.toLowerCase().startsWith(query))
-      .slice(0, Math.max(0, limit))
       .map((m) => ({ label: m, kind: "method" as const, detail: `method of ${receiverType}` }));
   }
 

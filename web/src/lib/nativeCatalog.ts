@@ -4897,11 +4897,11 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
     parameters: []
   },
   {
-    name: "env\", Description = \"Reads an environment variable by name.\", Example = \"write(sys.env(\\\"HOME\\\"))\", ReturnType = \"str\", ArgumentTypes = new[] { \"str\" }",
+    name: "env",
     module: "sys",
-    description: "Reads an environment variable by name.\", Example = \"write(sys.env(\"HOME\"))\", ReturnType = \"str\", ArgumentTypes = new[] { \"str\" }",
-    example: "write(sys.env(\"HOME\"))\", ReturnType = \"str\", ArgumentTypes = new[] { \"str\" }",
-    returnType: "str\", ArgumentTypes = new[] { \"str\" }",
+    description: "Reads an environment variable by name.",
+    example: "write(sys.env(\"HOME\"))",
+    returnType: "str",
     parameters: [
       {
         name: "name",
@@ -4913,19 +4913,19 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
     ]
   },
   {
-    name: "environ\", Description = \"Returns all environment variables as text entries.\", Example = \"values = sys.environ()\", ReturnType = \"list",
+    name: "environ",
     module: "sys",
-    description: "Returns all environment variables as text entries.\", Example = \"values = sys.environ()\", ReturnType = \"list",
-    example: "values = sys.environ()\", ReturnType = \"list",
+    description: "Returns all environment variables as text entries.",
+    example: "values = sys.environ()",
     returnType: "list",
     parameters: []
   },
   {
-    name: "expand_vars\", Description = \"Expands environment-variable placeholders in text.\", Example = \"path = sys.expand_vars(\\\"$HOME/data\\\")\", ReturnType = \"str\", ArgumentTypes = new[] { \"str\" }",
+    name: "expand_vars",
     module: "sys",
-    description: "Expands environment-variable placeholders in text.\", Example = \"path = sys.expand_vars(\"$HOME/data\")\", ReturnType = \"str\", ArgumentTypes = new[] { \"str\" }",
-    example: "path = sys.expand_vars(\"$HOME/data\")\", ReturnType = \"str\", ArgumentTypes = new[] { \"str\" }",
-    returnType: "str\", ArgumentTypes = new[] { \"str\" }",
+    description: "Expands environment-variable placeholders in text.",
+    example: "path = sys.expand_vars(\"$HOME/data\")",
+    returnType: "str",
     parameters: [
       {
         name: "text",
@@ -4937,123 +4937,123 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
     ]
   },
   {
-    name: "pid\", Description = \"Returns the current process identifier.\", Example = \"write(sys.pid())\", ReturnType = \"int",
+    name: "pid",
     module: "sys",
-    description: "Returns the current process identifier.\", Example = \"write(sys.pid())\", ReturnType = \"int",
-    example: "write(sys.pid())\", ReturnType = \"int",
+    description: "Returns the current process identifier.",
+    example: "write(sys.pid())",
     returnType: "int",
     parameters: []
   },
   {
-    name: "name\", Description = \"Returns the current operating-system name.\", Example = \"write(sys.name())\", ReturnType = \"str",
+    name: "name",
     module: "sys",
-    description: "Returns the current operating-system name.\", Example = \"write(sys.name())\", ReturnType = \"str",
-    example: "write(sys.name())\", ReturnType = \"str",
+    description: "Returns the current operating-system name.",
+    example: "write(sys.name())",
     returnType: "str",
     parameters: []
   },
   {
-    name: "arch\", Description = \"Returns the operating-system architecture.\", Example = \"write(sys.arch())\", ReturnType = \"str",
+    name: "arch",
     module: "sys",
-    description: "Returns the operating-system architecture.\", Example = \"write(sys.arch())\", ReturnType = \"str",
-    example: "write(sys.arch())\", ReturnType = \"str",
+    description: "Returns the operating-system architecture.",
+    example: "write(sys.arch())",
     returnType: "str",
     parameters: []
   },
   {
-    name: "version\", Description = \"Returns the operating-system version.\", Example = \"write(sys.version())\", ReturnType = \"str",
+    name: "version",
     module: "sys",
-    description: "Returns the operating-system version.\", Example = \"write(sys.version())\", ReturnType = \"str",
-    example: "write(sys.version())\", ReturnType = \"str",
+    description: "Returns the operating-system version.",
+    example: "write(sys.version())",
     returnType: "str",
     parameters: []
   },
   {
-    name: "cpuCount\", Description = \"Returns the available processor count.\", Example = \"write(sys.cpuCount())\", ReturnType = \"int",
+    name: "cpuCount",
     module: "sys",
-    description: "Returns the available processor count.\", Example = \"write(sys.cpuCount())\", ReturnType = \"int",
-    example: "write(sys.cpuCount())\", ReturnType = \"int",
+    description: "Returns the available processor count.",
+    example: "write(sys.cpuCount())",
     returnType: "int",
     parameters: []
   },
   {
-    name: "is64bit\", Description = \"Checks whether the operating system is 64-bit.\", Example = \"write(sys.is64bit())\", ReturnType = \"bool",
+    name: "is64bit",
     module: "sys",
-    description: "Checks whether the operating system is 64-bit.\", Example = \"write(sys.is64bit())\", ReturnType = \"bool",
-    example: "write(sys.is64bit())\", ReturnType = \"bool",
+    description: "Checks whether the operating system is 64-bit.",
+    example: "write(sys.is64bit())",
     returnType: "bool",
     parameters: []
   },
   {
-    name: "hostname\", Description = \"Returns the current machine host name.\", Example = \"write(sys.hostname())\", ReturnType = \"str",
+    name: "hostname",
     module: "sys",
-    description: "Returns the current machine host name.\", Example = \"write(sys.hostname())\", ReturnType = \"str",
-    example: "write(sys.hostname())\", ReturnType = \"str",
+    description: "Returns the current machine host name.",
+    example: "write(sys.hostname())",
     returnType: "str",
     parameters: []
   },
   {
-    name: "username\", Description = \"Returns the current operating-system user name.\", Example = \"write(sys.username())\", ReturnType = \"str",
+    name: "username",
     module: "sys",
-    description: "Returns the current operating-system user name.\", Example = \"write(sys.username())\", ReturnType = \"str",
-    example: "write(sys.username())\", ReturnType = \"str",
+    description: "Returns the current operating-system user name.",
+    example: "write(sys.username())",
     returnType: "str",
     parameters: []
   },
   {
-    name: "args\", Description = \"Returns the process command-line arguments.\", Example = \"values = sys.args()\", ReturnType = \"list",
+    name: "args",
     module: "sys",
-    description: "Returns the process command-line arguments.\", Example = \"values = sys.args()\", ReturnType = \"list",
-    example: "values = sys.args()\", ReturnType = \"list",
+    description: "Returns the process command-line arguments.",
+    example: "values = sys.args()",
     returnType: "list",
     parameters: []
   },
   {
-    name: "sep\", Description = \"Returns the directory separator character.\", Example = \"write(sys.sep())\", ReturnType = \"str",
+    name: "sep",
     module: "sys",
-    description: "Returns the directory separator character.\", Example = \"write(sys.sep())\", ReturnType = \"str",
-    example: "write(sys.sep())\", ReturnType = \"str",
+    description: "Returns the directory separator character.",
+    example: "write(sys.sep())",
     returnType: "str",
     parameters: []
   },
   {
-    name: "pathsep\", Description = \"Returns the path-list separator character.\", Example = \"write(sys.pathsep())\", ReturnType = \"str",
+    name: "pathsep",
     module: "sys",
-    description: "Returns the path-list separator character.\", Example = \"write(sys.pathsep())\", ReturnType = \"str",
-    example: "write(sys.pathsep())\", ReturnType = \"str",
+    description: "Returns the path-list separator character.",
+    example: "write(sys.pathsep())",
     returnType: "str",
     parameters: []
   },
   {
-    name: "linesep\", Description = \"Returns the environment line separator.\", Example = \"write(sys.linesep())\", ReturnType = \"str",
+    name: "linesep",
     module: "sys",
-    description: "Returns the environment line separator.\", Example = \"write(sys.linesep())\", ReturnType = \"str",
-    example: "write(sys.linesep())\", ReturnType = \"str",
+    description: "Returns the environment line separator.",
+    example: "write(sys.linesep())",
     returnType: "str",
     parameters: []
   },
   {
-    name: "tickCount\", Description = \"Returns elapsed system ticks in milliseconds.\", Example = \"write(sys.tickCount())\", ReturnType = \"int",
+    name: "tickCount",
     module: "sys",
-    description: "Returns elapsed system ticks in milliseconds.\", Example = \"write(sys.tickCount())\", ReturnType = \"int",
-    example: "write(sys.tickCount())\", ReturnType = \"int",
+    description: "Returns elapsed system ticks in milliseconds.",
+    example: "write(sys.tickCount())",
     returnType: "int",
     parameters: []
   },
   {
-    name: "getcalldepth\", Description = \"Returns current maximum recursion depth.\", Example = \"write(sys.getcalldepth())\", ReturnType = \"int",
+    name: "getcalldepth",
     module: "sys",
-    description: "Returns current maximum recursion depth.\", Example = \"write(sys.getcalldepth())\", ReturnType = \"int",
-    example: "write(sys.getcalldepth())\", ReturnType = \"int",
+    description: "Returns current maximum recursion depth.",
+    example: "write(sys.getcalldepth())",
     returnType: "int",
     parameters: []
   },
   {
-    name: "setcalldepth\", Description = \"Sets maximum recursion depth.\", Example = \"sys.setcalldepth(20000)\", ReturnType = \"none\", ArgumentTypes = new[] { \"int\" }",
+    name: "setcalldepth",
     module: "sys",
-    description: "Sets maximum recursion depth.\", Example = \"sys.setcalldepth(20000)\", ReturnType = \"none\", ArgumentTypes = new[] { \"int\" }",
-    example: "sys.setcalldepth(20000)\", ReturnType = \"none\", ArgumentTypes = new[] { \"int\" }",
-    returnType: "none\", ArgumentTypes = new[] { \"int\" }",
+    description: "Sets maximum recursion depth.",
+    example: "sys.setcalldepth(20000)",
+    returnType: "none",
     parameters: [
       {
         name: "depth",
@@ -5065,19 +5065,19 @@ export const NATIVE_FUNCTION_CATALOG: UnNativeFunctionMetadata[] = [
     ]
   },
   {
-    name: "getrecursionlimit\", Description = \"Returns current maximum recursion depth (alias).\", Example = \"write(sys.getrecursionlimit())\", ReturnType = \"int",
+    name: "getrecursionlimit",
     module: "sys",
-    description: "Returns current maximum recursion depth (alias).\", Example = \"write(sys.getrecursionlimit())\", ReturnType = \"int",
-    example: "write(sys.getrecursionlimit())\", ReturnType = \"int",
+    description: "Returns current maximum recursion depth (alias).",
+    example: "write(sys.getrecursionlimit())",
     returnType: "int",
     parameters: []
   },
   {
-    name: "setrecursionlimit\", Description = \"Sets maximum recursion depth (alias).\", Example = \"sys.setrecursionlimit(20000)\", ReturnType = \"none\", ArgumentTypes = new[] { \"int\" }",
+    name: "setrecursionlimit",
     module: "sys",
-    description: "Sets maximum recursion depth (alias).\", Example = \"sys.setrecursionlimit(20000)\", ReturnType = \"none\", ArgumentTypes = new[] { \"int\" }",
-    example: "sys.setrecursionlimit(20000)\", ReturnType = \"none\", ArgumentTypes = new[] { \"int\" }",
-    returnType: "none\", ArgumentTypes = new[] { \"int\" }",
+    description: "Sets maximum recursion depth (alias).",
+    example: "sys.setrecursionlimit(20000)",
+    returnType: "none",
     parameters: [
       {
         name: "depth",

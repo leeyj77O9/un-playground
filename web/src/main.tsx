@@ -1,6 +1,7 @@
 import './index.css'
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -10,7 +11,6 @@ import {
 } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-  getEditorLineNumbers,
   highlightUnSource,
   MAX_PLAYGROUND_SOURCE_CHARS,
   PLAYGROUND_DEFAULT_SOURCE,
@@ -19,18 +19,25 @@ import {
   restoreSavedSource,
   restoreTypeCheckPreference,
   applyUnAutocompleteCandidate,
+  applyUnFoldedViewChange,
+  buildUnFoldedView,
+  getUnFoldRanges,
   getUnObjectMethodCandidates,
   getUnAutocompleteCandidates,
   getUnAutocompleteRange,
+  getLspSignature,
+  getUnHoverType,
+  isUnInsideComment,
   isUnInsideString,
   getUnSignatureHelp,
   type ConsolePresentation,
   type ExecutionSnapshot,
   type UnAutocompleteCandidate,
+  type UnFoldRange,
   type UnNativeFunctionMetadata,
   type UnSignatureHelp,
 } from './lib/playground'
-import type { UnCheckResult } from './lib/wasmClient'
+import type { UnCheckResult, UnDiagnostic } from './lib/wasmClient'
 import { useWasm } from './hooks/useWasm'
 import { runUnScript } from './lib/wasmClient'
 
@@ -41,14 +48,41 @@ type InputInsertion = { at: number; value: string; kind: 'input' | 'output' }
 type HoverInfo =
   | { kind: 'error'; message: string; line: number; column: number; top: number; left: number }
   | { kind: 'type'; word: string; type: string; top: number; left: number }
+  | { kind: 'signature'; signature: UnSignatureHelp; top: number; left: number }
 
-const KIND_LABEL: Record<UnAutocompleteCandidate['kind'], string> = {
-  keyword: 'kw',
-  function: 'fn',
-  method: 'mt',
-  property: 'prop',
-  variable: 'var',
-  argument: 'arg',
+type CompletionKind = UnAutocompleteCandidate['kind']
+
+const KIND_TITLE: Record<CompletionKind, string> = {
+  keyword: '키워드',
+  function: '함수',
+  method: '메서드',
+  property: '프로퍼티',
+  variable: '변수',
+  argument: '인자',
+}
+
+// 함수/메서드는 오른쪽에 표시할 시그니처를 만든다 (예: add(x, y))
+const completionSignature = (
+  candidate: UnAutocompleteCandidate,
+  nativeFunctions: readonly UnNativeFunctionMetadata[],
+  checkResult: UnCheckResult | null,
+): string | null => {
+  if (candidate.kind !== 'function' && candidate.kind !== 'method') return null
+
+  const match = /^native\s+(.+)\s+(function|method)$/.exec(candidate.detail)
+  const stub = getLspSignature(match?.[1] ?? null, candidate.label, candidate.kind === 'method')
+  if (stub) return stub.label
+
+  const inferred = checkResult?.fnParams.find(([name]) => name === candidate.label)?.[1]
+  if (inferred) return `${candidate.label}(${inferred.map(([name]) => name).join(', ')})`
+
+  const entry = nativeFunctions.find(
+    (item) => item.name === candidate.label && (!match || item.module === match[1]),
+  )
+  const parameters = entry?.parameters.map(
+    (parameter) => `${parameter.positional ? '...' : ''}${parameter.name}${parameter.optional ? '?' : ''}`,
+  )
+  return `${candidate.label}(${parameters?.join(', ') ?? ''})`
 }
 
 const escapeHtml = (value: string) =>
@@ -58,6 +92,17 @@ const escapeHtml = (value: string) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
+
+// 진단 위치도 접힌 줄이 제거된 표시용 텍스트 기준으로 옮긴다
+const remapDiagnostics = (diagnostics: readonly UnDiagnostic[], sourceToView: Int32Array): UnDiagnostic[] =>
+  diagnostics
+    .map((diagnostic) => {
+      const start = sourceToView[Math.min(diagnostic.start, sourceToView.length - 1)] ?? 0
+      const end = sourceToView[Math.min(diagnostic.start + diagnostic.length, sourceToView.length - 1)] ?? start
+      if (end <= start) return null
+      return { ...diagnostic, start, length: end - start }
+    })
+    .filter((diagnostic): diagnostic is UnDiagnostic => diagnostic !== null)
 
 // 팝업 위치 계산용 텍스트 폭 측정 — 글자폭을 추정하지 않고 실제 렌더링 폭 사용
 let measureCtx: CanvasRenderingContext2D | null = null
@@ -99,6 +144,64 @@ function ToolbarIcon({ name }: { name: ToolbarIconName }) {
   }
 }
 
+function CompletionKindIcon({ kind }: { kind: CompletionKind }) {
+  const svg = {
+    width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none',
+    stroke: 'currentColor', strokeWidth: 1.5,
+    strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+  }
+  switch (kind) {
+    case 'keyword':
+      return <svg {...svg}><path d="M2.6 7.2V3.4a.8.8 0 0 1 .8-.8h3.8c.21 0 .42.08.57.24l6 6a.8.8 0 0 1 0 1.13l-3.8 3.8a.8.8 0 0 1-1.13 0l-6-6A.8.8 0 0 1 2.6 7.2Z" /><circle cx="5.2" cy="5.2" r=".8" fill="currentColor" stroke="none" /></svg>
+    case 'function':
+      return <svg {...svg}><circle cx="8" cy="8" r="5.2" /><circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none" /></svg>
+    case 'method':
+      return <svg {...svg}><path d="M8 2.4 13.6 8 8 13.6 2.4 8 8 2.4Z" /><circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none" /></svg>
+    case 'property':
+      return <svg {...svg}><rect x="2.6" y="4.4" width="10.8" height="7.2" rx="1.6" /><path d="M5.4 8h3.4" /></svg>
+    case 'variable':
+      return <svg {...svg}><path d="M8 2.5 13.2 5.3v5.4L8 13.5 2.8 10.7V5.3L8 2.5Z" /><path d="M2.8 5.3 8 8l5.2-2.7M8 8v5.5" /></svg>
+    case 'argument':
+      return <svg {...svg}><path d="M6.2 4.4 2.8 8l3.4 3.6M9.8 4.4 13.2 8l-3.4 3.6" /></svg>
+  }
+}
+
+function SignatureLabel({ help }: { help: UnSignatureHelp }) {
+  const open = help.label.indexOf('(')
+  const close = help.label.lastIndexOf(')')
+  if (open < 0 || close <= open) return <>{help.label}</>
+  const parameters = help.label.slice(open + 1, close).split(/,\s*/)
+  return (
+    <>
+      {help.label.slice(0, open + 1)}
+      {parameters.map((parameter, index) => (
+        <span key={`${parameter}-${index}`}>
+          {index > 0 && <span className="signature-help-sep">, </span>}
+          <span className={index === help.activeIndex ? 'signature-help-param active' : 'signature-help-param'}>
+            {parameter}
+          </span>
+        </span>
+      ))}
+      {help.label.slice(close)}
+    </>
+  )
+}
+
+// lsp.rs 의 hover markdown 과 같은 순서: 문서 → ```un 시그니처 코드 블록
+function SignatureHelpBody({ help, docFirst = false }: { help: UnSignatureHelp; docFirst?: boolean }) {
+  const doc = help.description && (
+    <div className={`signature-help-description${docFirst ? ' doc-first' : ''}`}>{help.description}</div>
+  )
+  const signature = (
+    <div className="signature-help-signature signature-help-label">
+      <SignatureLabel help={help} />
+    </div>
+  )
+  const example = help.example && <code className="signature-help-example">{help.example}</code>
+  return docFirst ? <>{doc}{signature}{example}</> : <>{signature}{doc}{example}</>
+}
+
 /* ── Source Editor ──────────────────────────────────────────────────── */
 function SourceEditor({
   value,
@@ -130,6 +233,7 @@ function SourceEditor({
   const [acVisible, setAcVisible] = useState(false)
   const [acCandidates, setAcCandidates] = useState<UnAutocompleteCandidate[]>([])
   const [acSelected, setAcSelected] = useState(0)
+  const acListRef = useRef<HTMLUListElement>(null)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
   const [sigHelp, setSigHelp] = useState<UnSignatureHelp | null>(null)
   const [sigPos, setSigPos] = useState({ top: 0, left: 0 })
@@ -137,9 +241,28 @@ function SourceEditor({
   const [copied, setCopied] = useState(false)
   const copyTimerRef = useRef<number | null>(null)
 
+  // 코드 접기: 접힌 선언의 key를 기억하고, 보이는 텍스트(view)만 편집기에 보여준다
+  const [foldedKeys, setFoldedKeys] = useState<Set<string>>(() => new Set())
+  const [scrollOffset, setScrollOffset] = useState({ top: 0, left: 0 })
+  const pendingViewCursorRef = useRef<number | null>(null)
+
   useEffect(() => {
     if (checkResult === null) setHover(null)
   }, [checkResult])
+
+  // 후보가 드롭다운 높이보다 많을 수 있으므로 화살표 이동 시 선택 항목을 목록 안에서 스크롤
+  useEffect(() => {
+    if (!acVisible || acCandidates.length === 0) return
+    const list = acListRef.current
+    const item = list?.children[acSelected] as HTMLElement | undefined
+    if (!list || !item) return
+    const itemTop = item.offsetTop
+    const itemBottom = itemTop + item.offsetHeight
+    if (itemTop < list.scrollTop) list.scrollTop = itemTop
+    else if (itemBottom > list.scrollTop + list.clientHeight) {
+      list.scrollTop = itemBottom - list.clientHeight
+    }
+  }, [acVisible, acCandidates, acSelected])
 
   useEffect(() => () => {
     if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
@@ -178,8 +301,10 @@ function SourceEditor({
   const handleCut = () => {
     const { start, end } = selectionRange()
     if (start === end) return
-    void copyText(value.slice(start, end))
-    onChange(value.slice(0, start) + value.slice(end))
+    void copyText(view.slice(start, end))
+    const nextView = view.slice(0, start) + view.slice(end)
+    pendingViewCursorRef.current = start
+    onChange(applyUnFoldedViewChange(view, nextView, viewToSource, value))
   }
 
   const handleSelectAll = () => {
@@ -196,11 +321,77 @@ function SourceEditor({
     onReset()
   }
 
-  const highlighted = useMemo(
-    () => highlightUnSource(value, checkResult?.diagnostics ?? []),
-    [value, checkResult],
+  // 접기 구간 계산 → 접힌 줄 제외한 보기 텍스트와 위치 매핑 생성
+  const foldRanges = useMemo(() => getUnFoldRanges(value), [value])
+  const hiddenLines = useMemo(() => {
+    const hidden = new Set<number>()
+    for (const range of foldRanges) {
+      if (!foldedKeys.has(range.key)) continue
+      for (let line = range.startLine + 1; line <= range.endLine; line++) hidden.add(line)
+    }
+    return hidden
+  }, [foldRanges, foldedKeys])
+  const { view, viewToSource, sourceToView, visibleSourceLines } = useMemo(
+    () => buildUnFoldedView(value, hiddenLines),
+    [value, hiddenLines],
   )
-  const lineNumbers = useMemo(() => getEditorLineNumbers(value), [value])
+  const viewLines = useMemo(() => view.split('\n'), [view])
+  const foldByViewLine = useMemo(() => {
+    const map = new Map<number, UnFoldRange>()
+    visibleSourceLines.forEach((sourceLine, viewLine) => {
+      const range = foldRanges.find((item) => item.startLine === sourceLine)
+      if (range) map.set(viewLine, range)
+    })
+    return map
+  }, [visibleSourceLines, foldRanges])
+
+  // 접힌 선언 뒤에 표시할 "⋯" 위치 (텍스트 영역과 같은 폰트·오프셋 사용)
+  const foldHints = useMemo(() => {
+    const el = textareaRef.current
+    const cs = el ? window.getComputedStyle(el) : null
+    const lineHeight = Number.parseFloat(cs?.lineHeight ?? '') || 22.75
+    const padLeft = Number.parseFloat(cs?.paddingLeft ?? '') || 22
+    const padTop = Number.parseFloat(cs?.paddingTop ?? '') || 18
+    const hints: { key: string; top: number; left: number }[] = []
+    visibleSourceLines.forEach((_, viewLine) => {
+      const range = foldByViewLine.get(viewLine)
+      if (!range || !foldedKeys.has(range.key)) return
+      hints.push({
+        key: range.key,
+        // 선언 줄과 같은 줄 끝에 붙이고, ⋯ 글리프가 본문 글자와 시각적으로 같은 높이가 되도록 보정
+        top: padTop + viewLine * lineHeight - scrollOffset.top + 2,
+        left: padLeft + measureTextWidth(viewLines[viewLine] ?? '', cs?.font ?? '') - scrollOffset.left + 10,
+      })
+    })
+    return hints
+  }, [viewLines, visibleSourceLines, foldByViewLine, foldedKeys, scrollOffset])
+
+  const diagnostics = useMemo(
+    () => remapDiagnostics(checkResult?.diagnostics ?? [], sourceToView),
+    [checkResult, sourceToView],
+  )
+  const highlighted = useMemo(() => highlightUnSource(view, diagnostics), [view, diagnostics])
+
+  const toggleFold = (range: UnFoldRange) => {
+    setFoldedKeys((previous) => {
+      const next = new Set(previous)
+      if (next.has(range.key)) next.delete(range.key)
+      else next.add(range.key)
+      return next
+    })
+  }
+
+  // 펼친 줄의 wrappers가 그대로 보이도록 편집 후 커서를 표시용 텍스트 기준으로 복원
+  useLayoutEffect(() => {
+    const cursor = pendingViewCursorRef.current
+    if (cursor === null) return
+    const el = textareaRef.current
+    if (el) {
+      el.selectionStart = el.selectionEnd = Math.min(cursor, el.value.length)
+      el.focus()
+    }
+    pendingViewCursorRef.current = null
+  }, [view])
 
   // 케어 위치(.code-surface 기준) — 팝업이 현재 라인 바로 아래에 뜨도록
   // 한글 등 글자폭이 다른 문자도 정확히 따라가도록 캔버스로 실제 폭을 측정
@@ -223,7 +414,8 @@ function SourceEditor({
   const positionPopups = (el: HTMLTextAreaElement, cursor: number, text: string, acCount: number) => {
     const caret = measureCaret(el, cursor, text)
     setDropPos({ top: caret.top, left: caret.left })
-    const acHeight = acCount > 0 ? 8 + 26 * acCount + 4 : 0
+    // CSS의 max-height(224px)와 같은 값으로 제한해 시그니처 도움말이 너무 아래로 밀리지 않게
+    const acHeight = acCount > 0 ? Math.min(224, 8 + 26 * acCount) + 4 : 0
     setSigPos({ top: caret.top + acHeight, left: caret.left })
   }
 
@@ -235,7 +427,7 @@ function SourceEditor({
   }
 
   const refreshAutocomplete = (text: string, cursor: number): number => {
-    if (isUnInsideString(text, cursor)) {
+    if (isUnInsideString(text, cursor) || isUnInsideComment(text, cursor)) {
       setAcVisible(false)
       return 0
     }
@@ -259,38 +451,37 @@ function SourceEditor({
 
   const applyCandidate = (candidate: UnAutocompleteCandidate) => {
     const el = textareaRef.current
-    const cursor = el?.selectionStart ?? value.length
-    const range = getUnAutocompleteRange(value, cursor)
-    const applied = applyUnAutocompleteCandidate(value, range, candidate)
-    onChange(applied.source)
+    const cursor = el?.selectionStart ?? view.length
+    const range = getUnAutocompleteRange(view, cursor)
+    const applied = applyUnAutocompleteCandidate(view, range, candidate)
+    pendingViewCursorRef.current = applied.cursor
+    onChange(applyUnFoldedViewChange(view, applied.source, viewToSource, value))
     setAcVisible(false)
     requestAnimationFrame(() => {
       const target = textareaRef.current
-      if (target) {
-        target.selectionStart = target.selectionEnd = applied.cursor
-        target.focus()
-        updateSignatureHelp(target, applied.source, 0)
-      }
+      if (target) updateSignatureHelp(target, target.value, 0)
     })
   }
 
   const handleTextChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const text = event.target.value
-    onChange(text)
+    const nextView = event.target.value
+    const cursor = event.target.selectionStart ?? nextView.length
+    setHover(null)
+    pendingViewCursorRef.current = cursor
+    onChange(applyUnFoldedViewChange(view, nextView, viewToSource, value))
     syncScroll(event.target)
-    const cursor = event.target.selectionStart ?? text.length
-    const acCount = refreshAutocomplete(text, cursor)
-    setSigHelp(getUnSignatureHelp(text, cursor, nativeFunctions, checkResult))
-    positionPopups(event.target, cursor, text, acCount)
+    const acCount = refreshAutocomplete(nextView, cursor)
+    setSigHelp(getUnSignatureHelp(nextView, cursor, nativeFunctions, checkResult))
+    positionPopups(event.target, cursor, nextView, acCount)
   }
 
   // 추론 결과가 도착하면 현재 커서 기준으로 제안/시그니처를 다시 계산
   useEffect(() => {
     const el = textareaRef.current
     if (!el || !acVisible) return
-    const cursor = el.selectionStart ?? value.length
-    const acCount = refreshAutocomplete(value, cursor)
-    updateSignatureHelp(el, value, acCount)
+    const cursor = el.selectionStart ?? view.length
+    const acCount = refreshAutocomplete(view, cursor)
+    updateSignatureHelp(el, view, acCount)
   }, [checkResult])
 
   const syncScroll = (el: HTMLTextAreaElement) => {
@@ -300,14 +491,11 @@ function SourceEditor({
     if (highlightRef.current) {
       highlightRef.current.style.transform = `translate(${-el.scrollLeft}px, -${el.scrollTop}px)`
     }
+    setScrollOffset({ top: el.scrollTop, left: el.scrollLeft })
   }
 
-  // 빨간 밑줄(진단) 위에서는 오류 메시지를, 그 외에는 추론 타입을 표시
+  // 진단 위에서는 오류를, 호출 위에서는 시그니처를, 그 외에는 추론 타입을 표시
   const handleMouseMove = (event: MouseEvent<HTMLTextAreaElement>) => {
-    if (!checkResult) {
-      setHover(null)
-      return
-    }
     const el = event.currentTarget
     const style = window.getComputedStyle(el)
     const lineHeight = Number.parseFloat(style.lineHeight) || 22.75
@@ -320,7 +508,7 @@ function SourceEditor({
       setHover(null)
       return
     }
-    const lines = value.split('\n')
+    const lines = viewLines
     const lineIndex = Math.floor(y / lineHeight)
     const line = lines[lineIndex]
     if (line === undefined) {
@@ -340,12 +528,13 @@ function SourceEditor({
     }
     const lineStart = lines.slice(0, lineIndex).reduce((sum, text) => sum + text.length + 1, 0)
     const offset = lineStart + column
+    const sourceOffset = viewToSource[offset] ?? offset
     const top = event.clientY - rect.top + 14
     const left = event.clientX - rect.left + 12
 
     // 1) 진단 범위(빨간 물결 밑줄)에 마우스가 있으면 오류 메시지 우선
-    const diagnostic = checkResult.diagnostics.find(
-      (item) => offset >= item.start && offset < item.start + item.length,
+    const diagnostic = checkResult?.diagnostics.find(
+      (item) => sourceOffset >= item.start && sourceOffset < item.start + item.length,
     )
     if (diagnostic) {
       setHover({
@@ -359,25 +548,31 @@ function SourceEditor({
       return
     }
 
-    // 2) 그 밖의 식별자는 WASM 추론 타입
-    let word: string | null = null
-    const identifier = /[A-Za-z_][A-Za-z0-9_]*/g
-    let match: RegExpExecArray | null
-    while ((match = identifier.exec(line)) !== null) {
-      if (column >= match.index && column <= match.index + match[0].length) {
-        word = match[0]
-        break
-      }
-    }
-    if (!word) {
+    // 2) 마우스 아래 식별자
+    let identStart = column
+    let identEnd = column
+    while (identStart > 0 && /[A-Za-z0-9_]/.test(line[identStart - 1] ?? '')) identStart--
+    while (identEnd < line.length && /[A-Za-z0-9_]/.test(line[identEnd] ?? '')) identEnd++
+    const name = line.slice(identStart, identEnd)
+    if (!/^[A-Za-z_]/.test(name)) {
       setHover(null)
       return
     }
-    const type =
-      checkResult.vars.find(([name]) => name === word)?.[1] ??
-      checkResult.fnReturns.find(([name]) => name === word)?.[1] ??
-      null
-    setHover(type ? { kind: 'type', word, type, top, left } : null)
+
+    // 3) 호출이면 괄호 바로 뒤 커서로 기존 시그니처 해석을 재사용
+    let callCursor = identEnd
+    while (callCursor < line.length && /\s/.test(line[callCursor] ?? '')) callCursor++
+    if (line[callCursor] === '(') {
+      const signature = getUnSignatureHelp(view, lineStart + callCursor + 1, nativeFunctions, checkResult)
+      if (signature) {
+        setHover({ kind: 'signature', signature, top, left })
+        return
+      }
+    }
+
+    // 4) 그 밖의 식별자는 WASM 추론 결과가 없으면 JS 추론으로 타입 표시
+    const type = getUnHoverType(view, name, nativeFunctions, checkResult)
+    setHover(type ? { kind: 'type', word: name, type, top, left } : null)
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -425,7 +620,7 @@ function SourceEditor({
 
     if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
       setAcVisible(false)
-      requestAnimationFrame(() => updateSignatureHelp(textareaRef.current, value, 0))
+      requestAnimationFrame(() => updateSignatureHelp(textareaRef.current, view, 0))
     }
 
     // undo/redo — 팝업 계열 UI도 함께 닫기
@@ -439,10 +634,9 @@ function SourceEditor({
       const el = event.currentTarget
       const start = el.selectionStart
       const end = el.selectionEnd
-      onChange(`${value.slice(0, start)}    ${value.slice(end)}`)
-      requestAnimationFrame(() => {
-        el.selectionStart = el.selectionEnd = start + 4
-      })
+      const nextView = `${view.slice(0, start)}    ${view.slice(end)}`
+      pendingViewCursorRef.current = start + 4
+      onChange(applyUnFoldedViewChange(view, nextView, viewToSource, value))
     }
   }
 
@@ -494,18 +688,45 @@ function SourceEditor({
         </div>
       </div>
       <div className="code-editor">
-        <div className="code-gutter" aria-hidden="true">
-        <pre ref={gutterRef}>{lineNumbers}</pre>
+        <div className="code-gutter">
+        <pre ref={gutterRef}>
+          {viewLines.map((_, viewLine) => {
+            const range = foldByViewLine.get(viewLine)
+            const folded = range ? foldedKeys.has(range.key) : false
+            return (
+              <div className="gutter-line" key={visibleSourceLines[viewLine]}>
+                {range && (
+                  <button
+                    type="button"
+                    className="fold-toggle"
+                    data-folded={folded}
+                    title={folded ? '펼치기' : '접기'}
+                    aria-label={`${range.label} ${folded ? '펼치기' : '접기'}`}
+                    onClick={() => toggleFold(range)}
+                  >
+                    <svg viewBox="0 0 10 10" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d={folded ? 'M3.6 2.4 6.2 5 3.6 7.6' : 'M2.4 3.6 5 6.2 7.6 3.6'} />
+                    </svg>
+                  </button>
+                )}
+                <span className="gutter-number">{visibleSourceLines[viewLine] + 1}</span>
+              </div>
+            )
+          })}
+        </pre>
       </div>
       <div className="code-surface">
         <pre aria-hidden="true" className="code-highlight">
           <code ref={highlightRef} dangerouslySetInnerHTML={{ __html: highlighted }} />
         </pre>
+        {foldHints.map((hint) => (
+          <span key={hint.key} className="fold-hint" aria-hidden="true" style={{ top: hint.top, left: hint.left }}>⋯</span>
+        ))}
         <textarea
           ref={textareaRef}
           className="code-input"
           aria-label="Un source code"
-          value={value}
+          value={view}
           onChange={handleTextChange}
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setHover(null)}
@@ -516,7 +737,7 @@ function SourceEditor({
               positionPopups(
                 event.currentTarget,
                 event.currentTarget.selectionStart ?? 0,
-                value,
+                view,
                 acVisible ? acCandidates.length : 0,
               )
             }
@@ -532,7 +753,15 @@ function SourceEditor({
           autoCorrect="off"
           wrap="off"
         />
-        {hover && (
+        {hover && hover.kind === 'signature' ? (
+          <div
+            className="signature-help"
+            role="tooltip"
+            style={{ top: hover.top, left: hover.left }}
+          >
+            <SignatureHelpBody help={hover.signature} docFirst />
+          </div>
+        ) : hover && (
           <div
             className={`type-hover${hover.kind === 'error' ? ' error' : ''}`}
             role="tooltip"
@@ -558,52 +787,40 @@ function SourceEditor({
             role="tooltip"
             style={{ top: sigPos.top, left: sigPos.left }}
           >
-            <div className="signature-help-signature">
-              <span className="signature-help-name">{sigHelp.displayName}</span>
-              <span className="signature-help-parens">(</span>
-              {sigHelp.parameters.map((parameter, index) => (
-                <span key={`${parameter.name}-${index}`}>
-                  <span className={`signature-help-param${index === sigHelp.activeIndex ? ' active' : ''}`}>
-                    {parameter.positional ? '...' : ''}{parameter.name}{parameter.optional ? '?' : ''}: {parameter.expectedType}
-                  </span>
-                  {index < sigHelp.parameters.length - 1 && <span className="signature-help-sep">, </span>}
-                </span>
-              ))}
-              <span className="signature-help-parens">) → </span>
-              <span className="signature-help-return">{sigHelp.returnType}</span>
-            </div>
-            {sigHelp.description && (
-              <div className="signature-help-description">{sigHelp.description}</div>
-            )}
-            {sigHelp.example && (
-              <code className="signature-help-example">{sigHelp.example}</code>
-            )}
+            <SignatureHelpBody help={sigHelp} />
           </div>
         )}
         {acVisible && acCandidates.length > 0 && (
           <ul
+            ref={acListRef}
             className="autocomplete-dropdown"
             role="listbox"
             aria-label="Autocomplete suggestions"
             style={{ top: dropPos.top, left: dropPos.left }}
           >
-            {acCandidates.map((candidate, index) => (
-              <li
-                key={`${candidate.label}-${index}`}
-                role="option"
-                aria-selected={index === acSelected}
-                className={`autocomplete-item${index === acSelected ? ' selected' : ''}`}
-                onMouseDown={(event) => {
-                  event.preventDefault()
-                  applyCandidate(candidate)
-                }}
-                onMouseEnter={() => setAcSelected(index)}
-              >
-                <span className="ac-kind">{KIND_LABEL[candidate.kind]}</span>
-                <span className="ac-label">{candidate.label}</span>
-                {candidate.detail && <span className="ac-detail">{candidate.detail}</span>}
-              </li>
-            ))}
+            {acCandidates.map((candidate, index) => {
+              const signature = completionSignature(candidate, nativeFunctions, checkResult)
+              return (
+                <li
+                  key={`${candidate.label}-${index}`}
+                  role="option"
+                  aria-selected={index === acSelected}
+                  data-kind={candidate.kind}
+                  className={`autocomplete-item${index === acSelected ? ' selected' : ''}`}
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    applyCandidate(candidate)
+                  }}
+                  onMouseEnter={() => setAcSelected(index)}
+                >
+                  <span className="ac-kind" role="img" aria-label={KIND_TITLE[candidate.kind]} title={KIND_TITLE[candidate.kind]}>
+                    <CompletionKindIcon kind={candidate.kind} />
+                  </span>
+                  <span className="ac-label">{candidate.label}</span>
+                  {signature && <span className="ac-detail">{signature}</span>}
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>
