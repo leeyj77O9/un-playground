@@ -60,6 +60,7 @@ body {
 .pane-editor {
   flex: 0 0 var(--editor-width, 50%);
   background: var(--paper);
+  transition: flex-basis 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .resize-handle {
@@ -69,6 +70,12 @@ body {
   cursor: col-resize;
   touch-action: none;
   background: transparent;
+  transition: flex-basis 240ms cubic-bezier(0.4, 0, 0.2, 1), opacity 160ms ease;
+}
+.workspace[data-output-hidden="true"] .resize-handle {
+  flex-basis: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .resize-handle::before {
@@ -227,6 +234,12 @@ body {
 .pane-terminal {
   flex: 1 1 0;
   background: var(--terminal);
+  overflow: hidden;
+  transition: flex-basis 240ms cubic-bezier(0.4, 0, 0.2, 1), opacity 200ms ease;
+}
+.workspace[data-output-hidden="true"] .pane-terminal {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .terminal-body {
@@ -365,6 +378,9 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .spinner { animation: none; }
+  .pane-editor,
+  .resize-handle,
+  .pane-terminal { transition: none; }
 }
 
 @media (max-width: 680px) {

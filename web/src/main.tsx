@@ -981,6 +981,7 @@ function TerminalPanel({
   result,
   presentation,
   transcript,
+  hidden,
   onContinue,
   onFinish,
 }: {
@@ -988,6 +989,7 @@ function TerminalPanel({
   result: ExecutionSnapshot | null
   presentation: ConsolePresentation | null
   transcript: string
+  hidden: boolean
   onContinue: (value: string, allowEof?: boolean) => void
   onFinish: () => void
 }) {
@@ -1002,8 +1004,8 @@ function TerminalPanel({
   }, [phase, result, transcript, draft])
 
   useEffect(() => {
-    if (phase === 'waiting') inputRef.current?.focus()
-  }, [phase])
+    if (phase === 'waiting' && !hidden) inputRef.current?.focus()
+  }, [phase, hidden])
 
   const shownTranscript = transcript.replace(/\n+$/, '')
 
@@ -1046,7 +1048,7 @@ function TerminalPanel({
   }
 
   return (
-    <aside className="pane pane-terminal">
+    <aside className="pane pane-terminal" aria-hidden={hidden}>
       <div ref={bodyRef} className="terminal-body" aria-live="polite" onClick={focusInput}>
         {phase === 'idle' && (
           <div className="terminal-line">
@@ -1459,6 +1461,7 @@ export default function Home() {
       <main
         ref={workspaceRef}
         className="workspace"
+        data-output-hidden={!outputVisible}
         style={{ '--editor-width': outputVisible ? `${leftPct}%` : '100%' } as CSSProperties}
       >
         <section className="pane pane-editor">
@@ -1478,7 +1481,7 @@ export default function Home() {
           />
         </section>
 
-        {outputVisible && <div
+        <div
           className="resize-handle"
           role="separator"
           aria-orientation="vertical"
@@ -1490,16 +1493,17 @@ export default function Home() {
           onMouseDown={() => setIsDragging(true)}
           onTouchStart={() => setIsDragging(true)}
           onDoubleClick={() => setLeftPct(50)}
-        />}
+        />
 
-        {outputVisible && <TerminalPanel
+        <TerminalPanel
           phase={phase}
           result={result}
           presentation={presentation}
           transcript={transcript}
+          hidden={!outputVisible}
           onContinue={continueRun}
           onFinish={finishRun}
-        />}
+        />
       </main>
     </div>
   )

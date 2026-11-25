@@ -17,5 +17,6 @@
 ## 구현 메모
 - `Home`이 `outputVisible` 상태와 localStorage 키(`un-playground-output-v1`)를 소유한다.
 - `SourceEditor`에 표시 상태와 토글 핸들러를 전달하고 `toolbar-tail`에 아이콘 버튼을 추가한다.
-- 숨김 상태에서는 `resize-handle`과 `TerminalPanel`을 렌더링하지 않고 `--editor-width`를 `100%`로 설정한다.
+- 숨김 상태에서는 `--editor-width`를 `100%`로 설정하고 `workspace[data-output-hidden]` 상태 클래스를 사용한다.
+- 접히는 애니메이션을 위해 출력창과 손잡이는 DOM에 유지한 채 `flex-basis`/`opacity`를 전환해 접는다(약 240ms, `prefers-reduced-motion`에서는 즉시). 접힌 동안에는 포커스와 클릭을 막는다.
 - 아이콘은 기존 `ToolbarIcon`에 출력창/닫힌 출력창 벡터를 추가해 폰트·브라우저에 영향받지 않게 한다.
