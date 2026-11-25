@@ -146,10 +146,9 @@ body {
 .fold-hint {
   position: absolute;
   z-index: 1;
+  width: 18px;
+  height: 14px;
   color: #b4552d;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.75;
   opacity: 0.75;
   pointer-events: none;
 }

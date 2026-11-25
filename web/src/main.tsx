@@ -362,7 +362,7 @@ function SourceEditor({
     return map
   }, [visibleSourceLines, foldRanges])
 
-  // 접힌 선언 뒤에 표시할 "⋯" 위치 (텍스트 영역과 같은 폰트·오프셋 사용)
+  // 접힌 선언 뒤에 표시할 미트볼 위치 (텍스트 영역과 같은 오프셋 사용)
   const foldHints = useMemo(() => {
     const el = textareaRef.current
     const cs = el ? window.getComputedStyle(el) : null
@@ -375,7 +375,7 @@ function SourceEditor({
       if (!range || !foldedKeys.has(range.key)) return
       hints.push({
         key: range.key,
-        // 선언 줄과 같은 줄 끝에 붙이고, ⋯ 글리프가 본문 글자와 시각적으로 같은 높이가 되도록 보정
+        // 선언 줄 끝에 붙이고, 점 세 개가 본문 글자와 시각적으로 같은 높이가 되도록 보정
         top: padTop + viewLine * lineHeight - scrollOffset.top + 2,
         left: padLeft + measureTextWidth(viewLines[viewLine] ?? '', cs?.font ?? '') - scrollOffset.left + 10,
       })
@@ -818,7 +818,17 @@ function SourceEditor({
           <code ref={highlightRef} dangerouslySetInnerHTML={{ __html: highlighted }} />
         </pre>
         {foldHints.map((hint) => (
-          <span key={hint.key} className="fold-hint" aria-hidden="true" style={{ top: hint.top, left: hint.left }}>⋯</span>
+          <svg
+            key={hint.key}
+            className="fold-hint"
+            aria-hidden="true"
+            viewBox="0 0 18 14"
+            style={{ top: hint.top, left: hint.left }}
+          >
+            <circle cx="3" cy="7" r="1.3" fill="currentColor" />
+            <circle cx="9" cy="7" r="1.3" fill="currentColor" />
+            <circle cx="15" cy="7" r="1.3" fill="currentColor" />
+          </svg>
         ))}
         <textarea
           ref={textareaRef}
