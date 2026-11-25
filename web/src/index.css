@@ -13,6 +13,8 @@
   --terminal-green: #a9c9a1;
 
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Noto Sans Mono CJK KR", "Malgun Gothic", "Gulim", "Liberation Mono", monospace;
+  /* 정수 px 줄 높이 — Safari가 textarea/pre/gutter를 각각 다르게 반올림하지 않도록 */
+  --code-line-height: 23px;
 }
 
 /* ── Base ────────────────────────────────────────────────────────────── */
@@ -109,7 +111,7 @@ body {
   padding: 18px 12px 18px 0;
   font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.75;
+  line-height: var(--code-line-height);
   color: #b6aa92;
   user-select: none;
   will-change: transform;
@@ -120,7 +122,7 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  height: 1.75em;
+  height: var(--code-line-height);
 }
 
 .fold-toggle {
@@ -169,7 +171,7 @@ body {
   border: 0;
   font-family: var(--font-mono);
   font-size: 13px;
-  line-height: 1.75;
+  line-height: var(--code-line-height);
   tab-size: 4;
   white-space: pre;
   word-wrap: normal;

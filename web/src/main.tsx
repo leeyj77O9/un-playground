@@ -368,7 +368,7 @@ function SourceEditor({
   const foldHints = useMemo(() => {
     const el = textareaRef.current
     const cs = el ? window.getComputedStyle(el) : null
-    const lineHeight = Number.parseFloat(cs?.lineHeight ?? '') || 22.75
+    const lineHeight = Number.parseFloat(cs?.lineHeight ?? '') || 23
     const padLeft = Number.parseFloat(cs?.paddingLeft ?? '') || 22
     const padTop = Number.parseFloat(cs?.paddingTop ?? '') || 18
     const hints: { key: string; top: number; left: number }[] = []
@@ -468,7 +468,7 @@ function SourceEditor({
     const lineStart = before.lastIndexOf('\n') + 1
     const lineText = before.slice(lineStart)
     const cs = window.getComputedStyle(el)
-    const lineHeight = Number.parseFloat(cs.lineHeight) || 22.75
+    const lineHeight = Number.parseFloat(cs.lineHeight) || 23
     const padLeft = Number.parseFloat(cs.paddingLeft) || 0
     const padTop = Number.parseFloat(cs.paddingTop) || 0
     return {
@@ -565,7 +565,7 @@ function SourceEditor({
   const handleMouseMove = (event: MouseEvent<HTMLTextAreaElement>) => {
     const el = event.currentTarget
     const style = window.getComputedStyle(el)
-    const lineHeight = Number.parseFloat(style.lineHeight) || 22.75
+    const lineHeight = Number.parseFloat(style.lineHeight) || 23
     const padLeft = Number.parseFloat(style.paddingLeft) || 0
     const padTop = Number.parseFloat(style.paddingTop) || 0
     const rect = el.getBoundingClientRect()
