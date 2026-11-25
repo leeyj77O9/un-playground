@@ -44,6 +44,8 @@ import { runUnScript } from './lib/wasmClient'
 
 type Phase = 'idle' | 'running' | 'waiting' | 'done'
 
+const FOLD_HINT_HEIGHT = 14
+
 type InputInsertion = { at: number; value: string; kind: 'input' | 'output' }
 
 type HoverInfo =
@@ -375,8 +377,8 @@ function SourceEditor({
       if (!range || !foldedKeys.has(range.key)) return
       hints.push({
         key: range.key,
-        // 선언 줄 끝에 붙이고, 점 세 개가 본문 글자와 시각적으로 같은 높이가 되도록 보정
-        top: padTop + viewLine * lineHeight - scrollOffset.top + 2,
+        // 선언 줄 끝에 붙이고, 점 세 개가 줄의 수직 중앙에 오도록 배치
+        top: padTop + viewLine * lineHeight + (lineHeight - FOLD_HINT_HEIGHT) / 2 - scrollOffset.top,
         left: padLeft + measureTextWidth(viewLines[viewLine] ?? '', cs?.font ?? '') - scrollOffset.left + 10,
       })
     })

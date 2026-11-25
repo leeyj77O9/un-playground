@@ -304,6 +304,11 @@ export function buildUnFoldedView(source: string, hiddenLines: ReadonlySet<numbe
   }
   viewToSource[view.length] = source.length;
   sourceToView[source.length] = view.length;
+  // 마지막 줄이 접히면 앞 줄의 개행은 남아 view에 빈 줄이 생기지만
+  // 위 반복문은 그 줄의 번호를 만들지 않는다. (undefined + 1 → NaN)
+  while (visibleSourceLines.length < view.split("\n").length) {
+    visibleSourceLines.push((visibleSourceLines[visibleSourceLines.length - 1] ?? -1) + 1);
+  }
   return { view, viewToSource, sourceToView, visibleSourceLines };
 }
 
