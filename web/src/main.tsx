@@ -590,16 +590,25 @@ function SourceEditor({
       setHover(null)
       return
     }
+    // 줄 끝 오른쪽 빈 공간이면 아무 글자도 가리키지 않은 것으로 처리
+    if (x >= measureTextWidth(line, style.font)) {
+      setHover(null)
+      return
+    }
     let width = 0
-    let column = line.length
+    let column = line.length - 1
     for (let i = 0; i < line.length; i++) {
       const charWidth = measureTextWidth(line[i], style.font)
-      // 마우스가 글자의 절반을 넘기면 다음 글자가 아닌 현재 글자로 처리
-      if (width + charWidth / 2 >= x) {
+      if (x < width + charWidth) {
         column = i
         break
       }
       width += charWidth
+    }
+    // 글자 사이 공백에서도 이전 단어가 잡히지 않도록
+    if (/\s/.test(line[column] ?? '')) {
+      setHover(null)
+      return
     }
     const lineStart = lines.slice(0, lineIndex).reduce((sum, text) => sum + text.length + 1, 0)
     const offset = lineStart + column
