@@ -111,6 +111,7 @@ export const MAX_PLAYGROUND_SOURCE_CHARS = 12_000;
 export const PLAYGROUND_STORAGE_KEYS = {
   source: "un-playground-source-v1",
   typeCheck: "un-playground-typecheck-v1",
+  output: "un-playground-output-v1",
 } as const;
 
 export type ExecutionStatus = "success" | "error" | "rejected" | "timed_out" | "cancelled";

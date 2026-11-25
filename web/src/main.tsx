@@ -120,7 +120,7 @@ const measureTextWidth = (text: string, font: string) => {
   return measureCtx.measureText(text).width
 }
 
-type ToolbarIconName = 'play' | 'undo' | 'redo' | 'copy' | 'check' | 'cut' | 'select' | 'reset' | 'typecheck'
+type ToolbarIconName = 'play' | 'undo' | 'redo' | 'copy' | 'check' | 'cut' | 'select' | 'reset' | 'typecheck' | 'output' | 'outputOff'
 
 function ToolbarIcon({ name }: { name: ToolbarIconName }) {
   const svg = {
@@ -148,6 +148,10 @@ function ToolbarIcon({ name }: { name: ToolbarIconName }) {
       return <svg {...svg}><path d="M2.8 8A5.2 5.2 0 1 0 4.6 4.1" /><path d="M2.8 3.6v3.6h3.6" /></svg>
     case 'typecheck':
       return <svg {...svg}><circle cx="8" cy="8" r="5.6" /><path d="M5.5 8.1 7.3 9.9 10.7 6.2" /></svg>
+    case 'output':
+      return <svg {...svg}><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="1.6" /><path d="M2.4 10.2h11.2" /></svg>
+    case 'outputOff':
+      return <svg {...svg}><rect x="2.4" y="2.8" width="11.2" height="10.4" rx="1.6" /><path d="M2.4 10.2h11.2M3 13.4 13 2.6" /></svg>
   }
 }
 
@@ -233,6 +237,8 @@ function SourceEditor({
   onReset,
   typeCheckEnabled,
   onToggleTypeCheck,
+  outputVisible,
+  onToggleOutput,
 }: {
   value: string
   onChange: (next: string) => void
@@ -244,6 +250,8 @@ function SourceEditor({
   onReset: () => void
   typeCheckEnabled: boolean
   onToggleTypeCheck: (enabled: boolean) => void
+  outputVisible: boolean
+  onToggleOutput: () => void
 }) {
   const highlightRef = useRef<HTMLElement>(null)
   const gutterRef = useRef<HTMLPreElement>(null)
@@ -784,6 +792,16 @@ function SourceEditor({
             >
               <ToolbarIcon name="typecheck" />
             </button>
+            <button
+              className="toolbar-btn"
+              data-active={outputVisible}
+              onClick={onToggleOutput}
+              title={outputVisible ? '출력창 숨기기' : '출력창 보이기'}
+              aria-label={outputVisible ? '출력창 숨기기' : '출력창 보이기'}
+              aria-pressed={outputVisible}
+            >
+              <ToolbarIcon name={outputVisible ? 'output' : 'outputOff'} />
+            </button>
           </div>
         </div>
       </div>
@@ -1105,6 +1123,14 @@ export default function Home() {
       return true
     }
   })
+  const [outputVisible, setOutputVisible] = useState(() => {
+    if (typeof window === 'undefined') return true
+    try {
+      return window.localStorage.getItem(PLAYGROUND_STORAGE_KEYS.output) !== 'hidden'
+    } catch {
+      return true
+    }
+  })
   const [phase, setPhase] = useState<Phase>('idle')
   const [result, setResult] = useState<ExecutionSnapshot | null>(null)
   const [transcript, setTranscript] = useState('')
@@ -1138,6 +1164,17 @@ export default function Home() {
       /* storage unavailable */
     }
   }, [typeCheckEnabled])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        PLAYGROUND_STORAGE_KEYS.output,
+        outputVisible ? 'visible' : 'hidden',
+      )
+    } catch {
+      /* storage unavailable */
+    }
+  }, [outputVisible])
 
   const changePhase = (next: Phase) => {
     phaseRef.current = next
@@ -1422,7 +1459,7 @@ export default function Home() {
       <main
         ref={workspaceRef}
         className="workspace"
-        style={{ '--editor-width': `${leftPct}%` } as CSSProperties}
+        style={{ '--editor-width': outputVisible ? `${leftPct}%` : '100%' } as CSSProperties}
       >
         <section className="pane pane-editor">
           <SourceEditor
@@ -1436,10 +1473,12 @@ export default function Home() {
             onReset={resetSource}
             typeCheckEnabled={typeCheckEnabled}
             onToggleTypeCheck={setTypeCheckEnabled}
+            outputVisible={outputVisible}
+            onToggleOutput={() => setOutputVisible((visible) => !visible)}
           />
         </section>
 
-        <div
+        {outputVisible && <div
           className="resize-handle"
           role="separator"
           aria-orientation="vertical"
@@ -1451,16 +1490,16 @@ export default function Home() {
           onMouseDown={() => setIsDragging(true)}
           onTouchStart={() => setIsDragging(true)}
           onDoubleClick={() => setLeftPct(50)}
-        />
+        />}
 
-        <TerminalPanel
+        {outputVisible && <TerminalPanel
           phase={phase}
           result={result}
           presentation={presentation}
           transcript={transcript}
           onContinue={continueRun}
           onFinish={finishRun}
-        />
+        />}
       </main>
     </div>
   )
