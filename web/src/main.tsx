@@ -71,6 +71,9 @@ const completionSignature = (
 ): string | null => {
   if (candidate.kind !== 'function' && candidate.kind !== 'method') return null
 
+  // User-defined functions/methods already carry their LSP-style label in detail.
+  if (candidate.detail.startsWith(`${candidate.label}(`)) return candidate.detail
+
   const match = /^native\s+(.+)\s+(function|method)$/.exec(candidate.detail)
   const stub = getLspSignature(match?.[1] ?? null, candidate.label, candidate.kind === 'method')
   if (stub) return stub.label

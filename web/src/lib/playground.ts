@@ -65,6 +65,11 @@ export function getLspHoverDoc(
 ): { label: string; doc: string } | null {
   if (qualifier) {
     // docs::function(module, word) → docs::function("members", word) → docs::auto(...)
+    // 사용자 클래스 메서드는 선언 위 # 주석이 문서다.
+    if (qualifierType && extractUnClassMethods(source)[qualifierType]?.includes(name)) {
+      const user = getUserDefHover(source, name)
+      if (user) return { label: `${qualifier}.${user.label}`, doc: user.doc }
+    }
     const module = qualifierType ?? (getUsedNativeModuleMap(source).get(qualifier) ?? qualifier);
     const stub = getLspSignature(module, name, true);
     if (stub) return { label: `${qualifier}.${stub.label}`, doc: stub.doc };
@@ -445,6 +450,20 @@ function extractUnClassMethods(source: string): Record<string, string[]> {
         if (!result[currentClass]!.includes(fnName)) result[currentClass]!.push(fnName)
       }
     }
+  }
+  return result
+}
+
+/** `obj = Box()` / `obj: Box = ...` → 변수 이름이 가리키는 사용자 클래스 이름 */
+function getUserClassVariableTypes(source: string): Record<string, string> {
+  const classes = new Set(Object.keys(extractUnClassMethods(source)))
+  const result: Record<string, string> = {}
+  for (const line of source.split('\n')) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?::\s*([A-Za-z_][A-Za-z0-9_]*)\s*)?=\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/)
+    if (!match) continue
+    const [, name, annotation, className] = match
+    const target = annotation && classes.has(annotation) ? annotation : className
+    if (classes.has(target)) result[name] = target
   }
   return result
 }
@@ -1354,7 +1373,7 @@ export function getUnObjectMethodCandidates(
   // `self.` resolves to the enclosing class even without an annotation.
   const receiverType = receiverExpression === "self"
     ? getEnclosingClassName(source, cursor) ?? inferredType
-    : inferredType;
+    : inferredType ?? getUserClassVariableTypes(precedingSource)[receiverExpression];
   if (!receiverType) return [];
   // 1) 네이티브 타입 메서드
   const nativeCandidates = nativeFunctions
@@ -1364,11 +1383,20 @@ export function getUnObjectMethodCandidates(
 
   // 2) 사용자 클래스 메서드 (class Point { fn greet ... } -> p = Point(); p.)
   const classMethods = extractUnClassMethods(source)
+  const signatures = extractUnFunctionSignatures(source)
   const userMethods = classMethods[receiverType]
   if (userMethods) {
     return userMethods
       .filter((m) => m.toLowerCase().startsWith(query))
-      .map((m) => ({ label: m, kind: "method" as const, detail: `method of ${receiverType}` }));
+      .map((m) => {
+        const signature = signatures[m]
+        const returnPart = signature?.returnType && signature.returnType !== "any" ? ` -> ${signature.returnType}` : ""
+        return {
+          label: m,
+          kind: "method" as const,
+          detail: signature ? `${m}(${signature.parameters.join(", ")})${returnPart}` : `method of ${receiverType}`,
+        }
+      });
   }
 
   return [];
