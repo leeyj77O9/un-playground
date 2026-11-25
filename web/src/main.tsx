@@ -951,7 +951,6 @@ function TerminalPanel({
   result,
   presentation,
   transcript,
-  onStart,
   onContinue,
   onFinish,
 }: {
@@ -959,7 +958,6 @@ function TerminalPanel({
   result: ExecutionSnapshot | null
   presentation: ConsolePresentation | null
   transcript: string
-  onStart: (stdinOverride?: string) => void
   onContinue: (value: string, allowEof?: boolean) => void
   onFinish: () => void
 }) {
@@ -990,33 +988,16 @@ function TerminalPanel({
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault()
       event.stopPropagation()
-      if (phase === 'waiting') {
-        if (draft.length > 0) onContinue(draft, true)
-        else onFinish()
-        setDraft('')
-        return
-      }
-      if (phase === 'running') return
+      if (draft.length > 0) onContinue(draft, true)
+      else onFinish()
       setDraft('')
-      onStart()
       return
     }
 
     if (event.key === 'Enter') {
       event.preventDefault()
-      if (phase === 'running') return
-      if (phase === 'waiting') {
-        onContinue(draft, false)
-        setDraft('')
-        return
-      }
+      onContinue(draft, false)
       setDraft('')
-      onStart()
-      return
-    }
-
-    if (phase !== 'waiting') {
-      event.preventDefault()
     }
   }
 
@@ -1069,24 +1050,26 @@ function TerminalPanel({
           <div className="terminal-hint">(no output)</div>
         )}
 
-        {draft.length > 0 && <div className="terminal-separator" />}
-
-        <div className="terminal-line terminal-input-line" data-waiting={phase === 'waiting'}>
-          <input
-            ref={inputRef}
-            className="terminal-input"
-            value={draft}
-            onChange={handleChange}
-            onCompositionStart={handleCompositionStart}
-            onCompositionEnd={handleCompositionEnd}
-            onKeyDown={handleKeyDown}
-            disabled={phase !== 'waiting'}
-            placeholder={phase === 'waiting' ? 'input' : undefined}
-            spellCheck={false}
-            autoComplete="off"
-            aria-label="Terminal input"
-          />
-        </div>
+        {phase === 'waiting' && (
+          <>
+            {draft.length > 0 && <div className="terminal-separator" />}
+            <div className="terminal-line terminal-input-line" data-waiting="true">
+              <input
+                ref={inputRef}
+                className="terminal-input"
+                value={draft}
+                onChange={handleChange}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
+                onKeyDown={handleKeyDown}
+                placeholder="input"
+                spellCheck={false}
+                autoComplete="off"
+                aria-label="Terminal input"
+              />
+            </div>
+          </>
+        )}
       </div>
     </aside>
   )
@@ -1463,7 +1446,6 @@ export default function Home() {
           result={result}
           presentation={presentation}
           transcript={transcript}
-          onStart={startRun}
           onContinue={continueRun}
           onFinish={finishRun}
         />
